@@ -27,13 +27,43 @@ from absl import flags
 import numpy as np
 import tensorflow as tf
 
+import dataloader
+
 os.environ['TF_DETERMINISTIC_OPS'] = '1'
 
 FLAGS = flags.FLAGS
 
+flags.DEFINE_string(
+    'annotations_json', default=None,
+    help=('Path to json file containing the training annotations json for'
+          ' the iWildCam2021 competition'))
+
+flags.DEFINE_string(
+    'dataset_dir', default=None,
+    help=('Path to directory containing training images.'))
+
+flags.DEFINE_string(
+    'megadetector_results_json', default=None,
+    help=('Path to json file containing megadetector results.'))
+
 flags.DEFINE_integer(
     'random_seed', default=42,
     help=('Random seed for reproductible experiments'))
+
+flags.mark_flag_as_required('annotations_json')
+flags.mark_flag_as_required('dataset_dir')
+flags.mark_flag_as_required('megadetector_results_json')
+
+def build_input_data():
+  input_data =  dataloader.JsonWBBoxInputProcessor(
+    dataset_json=FLAGS.annotations_json,
+    dataset_dir=FLAGS.dataset_dir,
+    megadetector_results_json=FLAGS.megadetector_results_json,
+    batch_size=1,
+    num_classes=2
+  )
+
+  return input_data.make_source_dataset()
 
 def set_random_seeds():
   random.seed(FLAGS.random_seed)
@@ -42,6 +72,11 @@ def set_random_seeds():
 
 def main(_):
   set_random_seeds()
+
+  train_dataset = build_input_data()
+
+  for sample in train_dataset.take(2):
+    print(sample)
 
 if __name__ == '__main__':
   app.run(main)
