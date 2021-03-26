@@ -16,6 +16,8 @@ import json
 import pandas as pd
 import tensorflow as tf
 
+import preprocessing
+
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
 class JsonWBBoxInputProcessor:
@@ -109,6 +111,12 @@ class JsonWBBoxInputProcessor:
     def _load_and_preprocess_image(filename, bboxes, label):
       image = tf.io.read_file(self.dataset_dir + filename)
       image = tf.io.decode_jpeg(image, channels=3)
+      image = preprocessing.preprocess_image(image,
+                                    output_size=self.output_size,
+                                    is_training=self.preprocess_for_train,
+                                    resize_with_pad=self.resize_with_pad,
+                                    randaug_num_layers=self.randaug_num_layers,
+                                    randaug_magnitude=self.randaug_magnitude)
 
       return image, bboxes, label
 

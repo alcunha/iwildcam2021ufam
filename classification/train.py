@@ -46,9 +46,11 @@ flags.DEFINE_string(
     'megadetector_results_json', default=None,
     help=('Path to json file containing megadetector results.'))
 
-flags.DEFINE_integer(
-    'random_seed', default=42,
-    help=('Random seed for reproductible experiments'))
+if 'random_seed' not in list(FLAGS):
+  flags.DEFINE_integer(
+      'random_seed', default=42,
+      help=('Random seed for reproductible experiments')
+  )
 
 flags.mark_flag_as_required('annotations_json')
 flags.mark_flag_as_required('dataset_dir')
