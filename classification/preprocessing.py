@@ -36,16 +36,20 @@ flags.DEFINE_bool(
 FLAGS = flags.FLAGS
 
 def random_crop(image,
+                bboxes,
                 aspect_ratio_range=[0.75, 1.33],
-                area_range=[0.65, 1],
-                min_object_covered=0.5,
+                area_range=[0.08, 1],
+                min_object_covered=0.2,
                 max_attempts=100,
-                seed=0):
+                seed=None):
 
-  bbox = tf.constant([0.0, 0.0, 1.0, 1.0], dtype=tf.float32, shape=[1, 1, 4])
+  if bboxes is None:
+    bboxes = tf.constant([0.0, 0.0, 1.0, 1.0],
+                        dtype=tf.float32, shape=[1, 1, 4])
+
   bbox_begin, bbox_size, _ = tf.image.sample_distorted_bounding_box(
       tf.shape(image),
-      bounding_boxes=bbox,
+      bounding_boxes=bboxes,
       min_object_covered=min_object_covered,
       area_range=area_range,
       aspect_ratio_range=aspect_ratio_range,
@@ -117,6 +121,7 @@ def resize_image(image, output_size, resize_with_pad=False):
 def preprocess_for_train(image,
                         output_size,
                         resize_with_pad=False,
+                        bboxes=None,
                         randaug_num_layers=None,
                         randaug_magnitude=None,
                         seed=None):
@@ -125,7 +130,7 @@ def preprocess_for_train(image,
     raise RuntimeError('Output size cannot be None for image preprocessing'
                        ' during training.')
 
-  image = random_crop(image, seed)
+  image = random_crop(image, bboxes, seed=seed)
   image = resize_image(image, output_size, resize_with_pad)
   image = flip(image, seed)
 
@@ -154,6 +159,7 @@ def preprocess_for_eval(image, output_size, resize_with_pad=False):
 def preprocess_image(image,
                      output_size=224,
                      is_training=False,
+                     bboxes=None,
                      resize_with_pad=False,
                      randaug_num_layers=None,
                      randaug_magnitude=None,
@@ -162,8 +168,9 @@ def preprocess_image(image,
     return preprocess_for_train(image,
                                 output_size,
                                 resize_with_pad,
+                                bboxes,
                                 randaug_num_layers,
                                 randaug_magnitude,
-                                seed)
+                                seed=seed)
   else:
     return preprocess_for_eval(image, output_size, resize_with_pad)

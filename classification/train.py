@@ -28,6 +28,7 @@ import numpy as np
 import tensorflow as tf
 
 import dataloader
+import utils
 
 os.environ['TF_DETERMINISTIC_OPS'] = '1'
 
@@ -46,6 +47,14 @@ flags.DEFINE_string(
     'megadetector_results_json', default=None,
     help=('Path to json file containing megadetector results.'))
 
+flags.DEFINE_integer(
+    'randaug_num_layers', default=None,
+    help=('Number of operations to be applied by Randaugment'))
+
+flags.DEFINE_integer(
+    'randaug_magnitude', default=None,
+    help=('Magnitude for operations on Randaugment.'))
+
 if 'random_seed' not in list(FLAGS):
   flags.DEFINE_integer(
       'random_seed', default=42,
@@ -62,7 +71,11 @@ def build_input_data():
     dataset_dir=FLAGS.dataset_dir,
     megadetector_results_json=FLAGS.megadetector_results_json,
     batch_size=1,
-    num_classes=2
+    num_classes=2,
+    is_training=True,
+    randaug_num_layers=FLAGS.randaug_num_layers,
+    randaug_magnitude=FLAGS.randaug_magnitude,
+    seed=FLAGS.random_seed,
   )
 
   return input_data.make_source_dataset()
@@ -73,12 +86,14 @@ def set_random_seeds():
   tf.random.set_seed(FLAGS.random_seed)
 
 def main(_):
+  if utils.xor(FLAGS.randaug_num_layers is None,
+              FLAGS.randaug_magnitude is None):
+    raise RuntimeError('To apply Randaugment during training you must specify'
+                      ' both --randaug_num_layers and --randaug_magnitude')
+
   set_random_seeds()
 
   train_dataset = build_input_data()
-
-  for sample in train_dataset.take(2):
-    print(sample)
 
 if __name__ == '__main__':
   app.run(main)

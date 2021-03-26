@@ -108,17 +108,29 @@ class JsonWBBoxInputProcessor:
       dataset = dataset.shuffle(self.num_instances, seed=self.seed)
       dataset = dataset.repeat()
 
+    def _decode_bboxes(bboxes):
+      xmin = bboxes['bbox_x']
+      ymin = bboxes['bbox_y']
+      xmax = xmin + bboxes['bbox_width']
+      ymax = ymin + bboxes['bbox_height']
+
+      bbox = tf.stack([xmin, ymin, xmax, ymax], axis=0)
+      bbox = tf.reshape(bbox, shape=[1, 1, 4])
+
+      return bbox
+
     def _load_and_preprocess_image(filename, bboxes, label):
+      bbox = _decode_bboxes(bboxes)
       image = tf.io.read_file(self.dataset_dir + filename)
       image = tf.io.decode_jpeg(image, channels=3)
       image = preprocessing.preprocess_image(image,
                                     output_size=self.output_size,
+                                    bboxes=bbox,
                                     is_training=self.preprocess_for_train,
                                     resize_with_pad=self.resize_with_pad,
                                     randaug_num_layers=self.randaug_num_layers,
                                     randaug_magnitude=self.randaug_magnitude)
-
-      return image, bboxes, label
+      return image, label
 
     dataset = dataset.map(_load_and_preprocess_image,
                           num_parallel_calls=AUTOTUNE)
