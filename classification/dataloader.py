@@ -26,7 +26,7 @@ class JsonWBBoxInputProcessor:
               dataset_dir,
               megadetector_results_json,
               batch_size,
-              num_classes,
+              category_map,
               default_empty_label=0,
               is_training=False,
               use_eval_preprocess=False,
@@ -41,10 +41,10 @@ class JsonWBBoxInputProcessor:
     self.dataset_dir = dataset_dir
     self.megadetector_results_json = megadetector_results_json
     self.batch_size = batch_size
+    self.category_map = category_map
     self.is_training = is_training
     self.output_size = output_size
     self.resize_with_pad = resize_with_pad
-    self.num_classes = num_classes
     self.default_empty_label = default_empty_label
     self.randaug_num_layers = randaug_num_layers
     self.randaug_magnitude = randaug_magnitude
@@ -130,6 +130,12 @@ class JsonWBBoxInputProcessor:
                                     resize_with_pad=self.resize_with_pad,
                                     randaug_num_layers=self.randaug_num_layers,
                                     randaug_magnitude=self.randaug_magnitude)
+
+      def _get_idx_label(label):
+        return self.category_map.category_to_index(label.numpy())
+      label = tf.py_function(func=_get_idx_label, inp=[label], Tout=tf.int32)
+      label = tf.one_hot(label, self.category_map.get_num_classes())
+
       return image, label
 
     dataset = dataset.map(_load_and_preprocess_image,

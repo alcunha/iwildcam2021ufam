@@ -27,6 +27,7 @@ from absl import flags
 import numpy as np
 import tensorflow as tf
 
+from iwildcamlib import CategoryMap
 import dataloader
 import utils
 
@@ -66,12 +67,14 @@ flags.mark_flag_as_required('dataset_dir')
 flags.mark_flag_as_required('megadetector_results_json')
 
 def build_input_data():
+  category_map = CategoryMap(FLAGS.annotations_json)
+
   input_data =  dataloader.JsonWBBoxInputProcessor(
     dataset_json=FLAGS.annotations_json,
     dataset_dir=FLAGS.dataset_dir,
     megadetector_results_json=FLAGS.megadetector_results_json,
     batch_size=1,
-    num_classes=2,
+    category_map=category_map,
     is_training=True,
     randaug_num_layers=FLAGS.randaug_num_layers,
     randaug_magnitude=FLAGS.randaug_magnitude,
