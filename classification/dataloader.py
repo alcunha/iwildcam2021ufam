@@ -146,4 +146,4 @@ class JsonWBBoxInputProcessor:
     if self.use_fake_data:
       dataset.take(1).repeat()
 
-    return dataset
+    return dataset, self.num_instances

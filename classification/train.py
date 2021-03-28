@@ -30,6 +30,7 @@ import tensorflow as tf
 from iwildcamlib import CategoryMap
 import dataloader
 import model_builder
+import train_image_classifier
 import utils
 
 os.environ['TF_DETERMINISTIC_OPS'] = '1'
@@ -79,15 +80,49 @@ flags.DEFINE_integer(
     'randaug_magnitude', default=None,
     help=('Magnitude for operations on Randaugment.'))
 
+flags.DEFINE_float(
+    'lr', default=0.01,
+    help=('Initial learning rate'))
+
+flags.DEFINE_float(
+    'momentum', default=0,
+    help=('Momentum for SGD optimizer'))
+
+flags.DEFINE_bool(
+    'use_scaled_lr', default=True,
+    help=('Scale the initial learning rate by batch size'))
+
+flags.DEFINE_bool(
+    'use_cosine_decay', default=True,
+    help=('Apply cosine decay during training'))
+
+flags.DEFINE_float(
+    'warmup_epochs', default=0.3,
+    help=('Duration of warmp of learning rate in epochs. It can be a'
+          ' fractionary value as long will be converted to steps.'))
+
+flags.DEFINE_float(
+    'label_smoothing', default=0.1,
+    help=('When 0, no smoothing occurs. When > 0, we apply Label Smoothing to'
+          ' the labels during training using this value for parameter e.'))
+
+flags.DEFINE_integer(
+    'epochs', default=10,
+    help=('Number of epochs to training for'))
+
+flags.DEFINE_string(
+    'model_dir', default=None,
+    help=('Location of the model checkpoint files'))
+
 if 'random_seed' not in list(FLAGS):
   flags.DEFINE_integer(
       'random_seed', default=42,
-      help=('Random seed for reproductible experiments')
-  )
+      help=('Random seed for reproductible experiments'))
 
 flags.mark_flag_as_required('annotations_json')
 flags.mark_flag_as_required('dataset_dir')
 flags.mark_flag_as_required('megadetector_results_json')
+flags.mark_flag_as_required('model_dir')
 
 def build_input_data(category_map, is_training):
   input_data =  dataloader.JsonWBBoxInputProcessor(
@@ -101,8 +136,7 @@ def build_input_data(category_map, is_training):
     output_size=FLAGS.input_size,
     randaug_num_layers=FLAGS.randaug_num_layers,
     randaug_magnitude=FLAGS.randaug_magnitude,
-    seed=FLAGS.random_seed,
-  )
+    seed=FLAGS.random_seed)
 
   return input_data.make_source_dataset()
 
@@ -115,6 +149,36 @@ def get_model(num_classes):
     seed=FLAGS.random_seed)
 
   return model
+
+def train_model(model, train_data_and_size, val_data_and_size, strategy):
+
+  if FLAGS.use_scaled_lr:
+    lr = FLAGS.lr * FLAGS.batch_size / 256
+  else:
+    lr = FLAGS.lr
+
+  _, train_size = train_data_and_size
+  warmup_steps = int(FLAGS.warmup_epochs * (train_size // FLAGS.batch_size))
+
+  hparams = train_image_classifier.get_default_hparams()
+  hparams = hparams._replace(
+    lr=lr,
+    momentum=FLAGS.momentum,
+    epochs=FLAGS.epochs,
+    warmup_steps=warmup_steps,
+    use_cosine_decay=FLAGS.use_cosine_decay,
+    batch_size=FLAGS.batch_size,
+    model_dir=FLAGS.model_dir,
+    label_smoothing=FLAGS.label_smoothing)
+
+  history = train_image_classifier.train_model(
+    model,
+    hparams,
+    train_data_and_size,
+    val_data_and_size,
+    strategy)
+
+  return history
 
 def set_random_seeds():
   random.seed(FLAGS.random_seed)
@@ -130,7 +194,9 @@ def main(_):
   set_random_seeds()
 
   category_map = CategoryMap(FLAGS.annotations_json)
-  train_dataset = build_input_data(category_map, is_training=True)
+  dataset, num_instances = build_input_data(category_map, is_training=True)
+  val_dataset = None
+  val_num_instances = 0
 
   strategy = tf.distribute.MirroredStrategy()
   print('Number of devices: {}'.format(strategy.num_replicas_in_sync))
@@ -143,6 +209,12 @@ def main(_):
   if FLAGS.load_checkpoint is not None:
     checkpoint_path = os.path.join(FLAGS.load_checkpoint, "ckp")
     model.load_weights(checkpoint_path)
+
+  history = train_model(
+    model,
+    train_data_and_size=(dataset, num_instances),
+    val_data_and_size=(val_dataset, val_num_instances),
+    strategy=strategy)
 
 if __name__ == '__main__':
   app.run(main)
