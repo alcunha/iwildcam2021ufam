@@ -31,6 +31,7 @@ class CategoryMap:
     self.category2idx = category2idx
     self.idx2category = idx2category
     self.category2name = category2name
+    self.num_classes = len(self.category2idx)
 
   def category_to_index(self, category):
     return self.category2idx[category]
@@ -42,4 +43,4 @@ class CategoryMap:
     return self.category2name[category]
 
   def get_num_classes(self):
-    return len(self.category2idx)
+    return self.num_classes

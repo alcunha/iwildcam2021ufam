@@ -29,11 +29,34 @@ import tensorflow as tf
 
 from iwildcamlib import CategoryMap
 import dataloader
+import model_builder
 import utils
 
 os.environ['TF_DETERMINISTIC_OPS'] = '1'
 
 FLAGS = flags.FLAGS
+
+flags.DEFINE_string(
+    'model_name', default='efficientnet-b0',
+    help=('Model name of the archtecture'))
+
+flags.DEFINE_integer(
+    'input_size', default=224,
+    help=('Input size of the model'))
+
+flags.DEFINE_integer(
+    'batch_size', default=32,
+    help=('Batch size used during training.'))
+
+flags.DEFINE_bool(
+    'fix_resolution', default=False,
+    help=('Apply the fix train-test resolution: fine-tune only the last layer'
+          ' and uses test data augmentation. Use the --input_size option'
+          ' to specify the test input resolution.'))
+
+flags.DEFINE_string(
+    'load_checkpoint', default=None,
+    help=('Path to weights checkpoint to be loaded into the model'))
 
 flags.DEFINE_string(
     'annotations_json', default=None,
@@ -66,22 +89,32 @@ flags.mark_flag_as_required('annotations_json')
 flags.mark_flag_as_required('dataset_dir')
 flags.mark_flag_as_required('megadetector_results_json')
 
-def build_input_data():
-  category_map = CategoryMap(FLAGS.annotations_json)
-
+def build_input_data(category_map, is_training):
   input_data =  dataloader.JsonWBBoxInputProcessor(
     dataset_json=FLAGS.annotations_json,
     dataset_dir=FLAGS.dataset_dir,
     megadetector_results_json=FLAGS.megadetector_results_json,
-    batch_size=1,
+    batch_size=FLAGS.batch_size,
     category_map=category_map,
-    is_training=True,
+    is_training=is_training,
+    use_eval_preprocess=FLAGS.fix_resolution,
+    output_size=FLAGS.input_size,
     randaug_num_layers=FLAGS.randaug_num_layers,
     randaug_magnitude=FLAGS.randaug_magnitude,
     seed=FLAGS.random_seed,
   )
 
   return input_data.make_source_dataset()
+
+def get_model(num_classes):
+  model = model_builder.create(
+    model_name=FLAGS.model_name,
+    num_classes=num_classes,
+    input_size=FLAGS.input_size,
+    freeze_layers=FLAGS.fix_resolution,
+    seed=FLAGS.random_seed)
+
+  return model
 
 def set_random_seeds():
   random.seed(FLAGS.random_seed)
@@ -96,7 +129,20 @@ def main(_):
 
   set_random_seeds()
 
-  train_dataset = build_input_data()
+  category_map = CategoryMap(FLAGS.annotations_json)
+  train_dataset = build_input_data(category_map, is_training=True)
+
+  strategy = tf.distribute.MirroredStrategy()
+  print('Number of devices: {}'.format(strategy.num_replicas_in_sync))
+
+  with strategy.scope():
+    model = get_model(category_map.get_num_classes())
+
+  model.summary()
+
+  if FLAGS.load_checkpoint is not None:
+    checkpoint_path = os.path.join(FLAGS.load_checkpoint, "ckp")
+    model.load_weights(checkpoint_path)
 
 if __name__ == '__main__':
   app.run(main)
