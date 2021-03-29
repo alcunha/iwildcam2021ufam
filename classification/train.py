@@ -18,6 +18,7 @@ Set the environment variable PYTHONHASHSEED to a reproducible value
 before you start the python process to ensure that the model trains
 or infers with reproducibility
 """
+import json
 import os
 import random
 
@@ -72,6 +73,11 @@ flags.DEFINE_string(
     'megadetector_results_json', default=None,
     help=('Path to json file containing megadetector results.'))
 
+flags.DEFINE_string(
+    'train_dataset_split', default=None,
+    help=('Path to json file containing the train/validation split based on'
+          ' locations.'))
+
 flags.DEFINE_integer(
     'randaug_num_layers', default=None,
     help=('Number of operations to be applied by Randaugment'))
@@ -124,13 +130,20 @@ flags.mark_flag_as_required('dataset_dir')
 flags.mark_flag_as_required('megadetector_results_json')
 flags.mark_flag_as_required('model_dir')
 
-def build_input_data(category_map, is_training):
+def load_train_validation_split():
+  with tf.io.gfile.GFile(FLAGS.train_dataset_split, 'r') as json_file:
+    json_data = json.load(json_file)
+
+  return json_data['train'], json_data['validation']
+
+def build_input_data(category_map, locations=None, is_training=True):
   input_data =  dataloader.JsonWBBoxInputProcessor(
     dataset_json=FLAGS.annotations_json,
     dataset_dir=FLAGS.dataset_dir,
     megadetector_results_json=FLAGS.megadetector_results_json,
     batch_size=FLAGS.batch_size,
     category_map=category_map,
+    selected_locations=locations,
     is_training=is_training,
     use_eval_preprocess=FLAGS.fix_resolution,
     output_size=FLAGS.input_size,
@@ -194,9 +207,19 @@ def main(_):
   set_random_seeds()
 
   category_map = CategoryMap(FLAGS.annotations_json)
-  dataset, num_instances = build_input_data(category_map, is_training=True)
-  val_dataset = None
-  val_num_instances = 0
+  if FLAGS.train_dataset_split is not None:
+    train_loc, val_loc = load_train_validation_split()
+    dataset, num_instances = build_input_data(category_map,
+                                              locations=train_loc,
+                                              is_training=True)
+    val_dataset, val_num_instances = build_input_data(category_map,
+                                                      locations=val_loc,
+                                                      is_training=False)
+  else:
+    dataset, num_instances = build_input_data(category_map,
+                                              is_training=True)
+    val_dataset = None
+    val_num_instances = 0
 
   strategy = tf.distribute.MirroredStrategy()
   print('Number of devices: {}'.format(strategy.num_replicas_in_sync))

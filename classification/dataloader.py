@@ -27,6 +27,7 @@ class JsonWBBoxInputProcessor:
               megadetector_results_json,
               batch_size,
               category_map,
+              selected_locations=None,
               default_empty_label=0,
               is_training=False,
               use_eval_preprocess=False,
@@ -42,6 +43,7 @@ class JsonWBBoxInputProcessor:
     self.megadetector_results_json = megadetector_results_json
     self.batch_size = batch_size
     self.category_map = category_map
+    self.selected_locations = selected_locations
     self.is_training = is_training
     self.output_size = output_size
     self.resize_with_pad = resize_with_pad
@@ -94,6 +96,10 @@ class JsonWBBoxInputProcessor:
 
   def make_source_dataset(self):
     metadata = self._load_metadata()
+    if self.selected_locations is not None:
+      metadata = metadata[metadata.location.isin(self.selected_locations)]
+      metadata = metadata.copy()
+
     bboxes = self._prepare_bboxes(metadata)
 
     self.num_instances = len(metadata.file_name)
