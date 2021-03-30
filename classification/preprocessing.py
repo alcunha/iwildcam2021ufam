@@ -35,11 +35,51 @@ flags.DEFINE_bool(
 
 FLAGS = flags.FLAGS
 
+@tf.function
+def square_crop(image, bbox):
+  img_height, img_width, _ = tf.split(tf.shape(image), num_or_size_splits=3)
+  xmin, ymin, xmax, ymax = tf.split(bbox[0][0], num_or_size_splits=4)
+  bbox_width = xmax - xmin
+  bbox_height = ymax - ymin
+
+  def castMultiply(x, y):
+    y = tf.cast(y, dtype=tf.float32)
+    return tf.cast(x * y, dtype=tf.int32)
+
+  offset_width = castMultiply(xmin, img_width)
+  offset_height = castMultiply(ymin, img_height)
+  target_height = castMultiply(bbox_height, img_height)
+  target_width = castMultiply(bbox_width, img_width)
+
+  crop_size = tf.maximum(target_height, target_width)
+  crop_size = tf.minimum(tf.minimum(crop_size, img_height), img_width)
+
+  center_x = offset_width + target_width//2
+  center_y = offset_height + target_height//2
+
+  offset_width_new = tf.maximum(0, center_x - crop_size//2)
+  offset_height_new = tf.maximum(0, center_y - crop_size//2)
+
+  offset_width_new = tf.cond(offset_width_new + crop_size > img_width,
+                             lambda: img_width - crop_size,
+                             lambda: offset_width_new)
+  offset_height_new = tf.cond(offset_height_new + crop_size > img_height,
+                              lambda: img_height - crop_size,
+                              lambda: offset_height_new)
+
+  image = tf.image.crop_to_bounding_box(image,
+                                        offset_height_new[0],
+                                        offset_width_new[0],
+                                        crop_size[0],
+                                        crop_size[0])
+
+  return image
+
 def random_crop(image,
                 bboxes,
                 aspect_ratio_range=[0.75, 1.33],
                 area_range=[0.08, 1],
-                min_object_covered=0.2,
+                min_object_covered=0.5,
                 max_attempts=100,
                 seed=None):
 
@@ -147,7 +187,9 @@ def preprocess_for_train(image,
 
   return image
 
-def preprocess_for_eval(image, output_size, resize_with_pad=False):
+def preprocess_for_eval(image, output_size, bbox=None, resize_with_pad=False):
+  if bbox is not None:
+    image = square_crop(image, bbox)
 
   if output_size is not None:
     image = resize_image(image, output_size, resize_with_pad)
@@ -173,4 +215,4 @@ def preprocess_image(image,
                                 randaug_magnitude,
                                 seed=seed)
   else:
-    return preprocess_for_eval(image, output_size, resize_with_pad)
+    return preprocess_for_eval(image, output_size, bboxes, resize_with_pad)
