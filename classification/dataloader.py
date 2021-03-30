@@ -95,6 +95,7 @@ class JsonWBBoxInputProcessor:
     return bboxes.to_dict('list')
 
   def make_source_dataset(self):
+    self.num_classes = self.category_map.get_num_classes()
     metadata = self._load_metadata()
     if self.selected_locations is not None:
       metadata = metadata[metadata.location.isin(self.selected_locations)]
@@ -140,7 +141,8 @@ class JsonWBBoxInputProcessor:
       def _get_idx_label(label):
         return self.category_map.category_to_index(label.numpy())
       label = tf.py_function(func=_get_idx_label, inp=[label], Tout=tf.int32)
-      label = tf.one_hot(label, self.category_map.get_num_classes())
+      label = tf.reshape(label, shape=())
+      label = tf.one_hot(label, self.num_classes)
 
       return image, label
 
