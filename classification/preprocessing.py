@@ -170,7 +170,9 @@ def preprocess_for_train(image,
     raise RuntimeError('Output size cannot be None for image preprocessing'
                        ' during training.')
 
-  image = random_crop(image, bboxes, seed=seed)
+  if bboxes is not None:
+    image = square_crop(image, bboxes)
+  # image = random_crop(image, bboxes=None, seed=seed)
   image = resize_image(image, output_size, resize_with_pad)
   image = flip(image, seed)
 

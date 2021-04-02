@@ -37,6 +37,7 @@ class JsonWBBoxInputProcessor:
               randaug_magnitude=None,
               use_fake_data=False,
               provide_instance_id=False,
+              batch_drop_remainder=True,
               seed=None):
     self.dataset_json = dataset_json
     self.dataset_dir = dataset_dir
@@ -53,6 +54,7 @@ class JsonWBBoxInputProcessor:
     self.use_fake_data = use_fake_data
     self.provide_instance_id = provide_instance_id
     self.preprocess_for_train = is_training and not use_eval_preprocess
+    self.batch_drop_remainder = batch_drop_remainder
     self.seed = seed
     self.num_instances = 0
 
@@ -144,12 +146,16 @@ class JsonWBBoxInputProcessor:
       label = tf.reshape(label, shape=())
       label = tf.one_hot(label, self.num_classes)
 
+      if self.provide_instance_id:
+        return image, (label, filename)
+
       return image, label
 
     dataset = dataset.map(_load_and_preprocess_image,
                           num_parallel_calls=AUTOTUNE)
     dataset = dataset.prefetch(buffer_size=AUTOTUNE)
-    dataset = dataset.batch(self.batch_size, drop_remainder=True)
+    dataset = dataset.batch(self.batch_size,
+                            drop_remainder=self.batch_drop_remainder)
 
     if self.use_fake_data:
       dataset.take(1).repeat()
