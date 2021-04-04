@@ -152,7 +152,8 @@ def main(_):
   predictions = decode_predictions(predictions, category_map)
 
   generate_submission(instance_ids, predictions, category_map,
-                      FLAGS.test_info_json, FLAGS.submission_file_path)
+                      FLAGS.test_info_json, FLAGS.megadetector_results_json,
+                      FLAGS.submission_file_path)
 
 if __name__ == '__main__':
   app.run(main)

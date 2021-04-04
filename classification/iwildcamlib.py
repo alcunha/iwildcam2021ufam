@@ -14,8 +14,16 @@
 
 import json
 
+from absl import flags
+
 import pandas as pd
 import tensorflow as tf
+
+FLAGS = flags.FLAGS
+
+flags.DEFINE_float(
+    'megadetector_threshold', default=0.9,
+    help=('Threshold to use megadetector bounding box on individual counts'))
 
 class CategoryMap:
   def __init__(self, dataset_json):
@@ -67,6 +75,34 @@ def _load_seq_info(instance_ids, predictions, test_info_json):
 
   return preds
 
+def _load_megadetector_counts(test_info_json, megadetector_results_json):
+  with tf.io.gfile.GFile(test_info_json, 'r') as json_file:
+    json_data = json.load(json_file)
+  test_set = pd.DataFrame(json_data['images'])
+
+  with tf.io.gfile.GFile(megadetector_results_json, 'r') as json_file:
+    json_data = json.load(json_file)
+  mega_detector_results = pd.DataFrame(json_data['images'])
+
+  data = pd.merge(test_set, mega_detector_results, how='left', on='id')
+  for row in data.loc[data.detections.isna()].index:
+    data.at[row, 'detections'] = []
+
+  def count_detections(row):
+    count = 0
+    for bbox in row['detections']:
+      if bbox['conf'] > FLAGS.megadetector_threshold:
+        count += 1
+    return count
+  data['detections_count'] = data.apply(count_detections, axis=1)
+
+  seq_counts = {}
+  for seq_id in test_set.seq_id.unique():
+    max_count = data[data.seq_id == seq_id]['detections_count'].max()
+    seq_counts[seq_id] = max_count
+
+  return seq_counts
+
 def _get_majority_vote_prediction(seq_preds):
   preds = list(seq_preds.Category.values)
   return max(set(preds), key=preds.count)
@@ -95,20 +131,23 @@ def _generate_zero_submission(seq_ids, categories):
 
   return sub
 
-def _generate_df_submission(seq_preds, category_map):
+def _generate_df_submission(seq_preds, seq_counts, category_map):
   categories = category_map.get_category_list()
   submission = _generate_zero_submission(list(seq_preds.keys()), categories)
   for seq_id in seq_preds.keys():
     pred = seq_preds[seq_id]
     if pred > 0:
       column = 'Predicted' + str(pred)
-      submission.loc[submission.Id == seq_id, column] = 1
+      submission.loc[submission.Id == seq_id, column] = max(1,
+                                                            seq_counts[seq_id])
 
   return submission
 
 def generate_submission(instance_ids, predictions, category_map,
-                        test_info_json, csv_file):
+                        test_info_json, megadetector_results_json, csv_file):
   predictions = _load_seq_info(instance_ids, predictions, test_info_json)
+  seq_counts = _load_megadetector_counts(test_info_json,
+                                         megadetector_results_json)
   seq_preds = _predict_by_seq(predictions)
-  df = _generate_df_submission(seq_preds, category_map)
+  df = _generate_df_submission(seq_preds, seq_counts, category_map)
   df.to_csv(csv_file, index=False, header=True, sep=',')
