@@ -144,6 +144,7 @@ class JsonWBBoxInputProcessor:
                                     resize_with_pad=self.resize_with_pad,
                                     randaug_num_layers=self.randaug_num_layers,
                                     randaug_magnitude=self.randaug_magnitude)
+        inputs = image
       elif self.crop_mode == 'full':
         image = preprocessing.preprocess_image(image,
                                     output_size=self.output_size,
@@ -153,9 +154,27 @@ class JsonWBBoxInputProcessor:
                                     resize_with_pad=self.resize_with_pad,
                                     randaug_num_layers=self.randaug_num_layers,
                                     randaug_magnitude=self.randaug_magnitude)
+        inputs = image
+      elif self.crop_mode == 'both':
+        image1 = preprocessing.preprocess_image(image,
+                                    output_size=self.output_size,
+                                    bboxes=bbox,
+                                    use_square_crop=True,
+                                    is_training=self.preprocess_for_train,
+                                    resize_with_pad=self.resize_with_pad,
+                                    randaug_num_layers=self.randaug_num_layers,
+                                    randaug_magnitude=self.randaug_magnitude)
+        image2 = preprocessing.preprocess_image(image,
+                                    output_size=self.output_size,
+                                    bboxes=None,
+                                    use_square_crop=False,
+                                    is_training=self.preprocess_for_train,
+                                    resize_with_pad=self.resize_with_pad,
+                                    randaug_num_layers=self.randaug_num_layers,
+                                    randaug_magnitude=self.randaug_magnitude)
+        inputs = (image1, image2)
       else:
-        raise ValueError('crop_mode must be either "bbox" or "full", used %s.' %
-                         self.crop_mode)
+        raise ValueError('Invalid crop_mode, used %s.' % self.crop_mode)
 
       def _get_idx_label(label):
         return self.category_map.category_to_index(label.numpy())
@@ -164,9 +183,9 @@ class JsonWBBoxInputProcessor:
       label = tf.one_hot(label, self.num_classes)
 
       if self.provide_instance_id:
-        return image, (label, filename)
+        return inputs, (label, filename)
 
-      return image, label
+      return inputs, label
 
     dataset = dataset.map(_load_and_preprocess_image,
                           num_parallel_calls=AUTOTUNE)
