@@ -36,6 +36,10 @@ flags.DEFINE_integer(
     'input_size', default=224,
     help=('Input size of the model'))
 
+flags.DEFINE_bool(
+    'use_full_image', default=False,
+    help=('Ignore bounding boxes and use full image'))
+
 flags.DEFINE_integer(
     'batch_size', default=32,
     help=('Batch size used during training.'))
@@ -102,6 +106,7 @@ def _build_input_data(category_map):
     category_map=category_map,
     is_training=False,
     output_size=FLAGS.input_size,
+    crop_mode='full' if FLAGS.use_full_image else 'bbox',
     provide_instance_id=True,
     seed=FLAGS.random_seed)
 

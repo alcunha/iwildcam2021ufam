@@ -27,6 +27,7 @@ class JsonWBBoxInputProcessor:
               megadetector_results_json,
               batch_size,
               category_map,
+              crop_mode='bbox',
               selected_locations=None,
               default_empty_label=0,
               is_training=False,
@@ -44,6 +45,7 @@ class JsonWBBoxInputProcessor:
     self.megadetector_results_json = megadetector_results_json
     self.batch_size = batch_size
     self.category_map = category_map
+    self.crop_mode = crop_mode
     self.selected_locations = selected_locations
     self.is_training = is_training
     self.output_size = output_size
@@ -132,7 +134,9 @@ class JsonWBBoxInputProcessor:
       bbox = _decode_bboxes(bboxes)
       image = tf.io.read_file(self.dataset_dir + filename)
       image = tf.io.decode_jpeg(image, channels=3)
-      image = preprocessing.preprocess_image(image,
+
+      if self.crop_mode == 'bbox':
+        image = preprocessing.preprocess_image(image,
                                     output_size=self.output_size,
                                     bboxes=bbox,
                                     use_square_crop=True,
@@ -140,6 +144,18 @@ class JsonWBBoxInputProcessor:
                                     resize_with_pad=self.resize_with_pad,
                                     randaug_num_layers=self.randaug_num_layers,
                                     randaug_magnitude=self.randaug_magnitude)
+      elif self.crop_mode == 'full':
+        image = preprocessing.preprocess_image(image,
+                                    output_size=self.output_size,
+                                    bboxes=None,
+                                    use_square_crop=False,
+                                    is_training=self.preprocess_for_train,
+                                    resize_with_pad=self.resize_with_pad,
+                                    randaug_num_layers=self.randaug_num_layers,
+                                    randaug_magnitude=self.randaug_magnitude)
+      else:
+        raise ValueError('crop_mode must be either "bbox" or "full", used %s.' %
+                         self.crop_mode)
 
       def _get_idx_label(label):
         return self.category_map.category_to_index(label.numpy())

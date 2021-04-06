@@ -86,6 +86,10 @@ flags.DEFINE_integer(
     'randaug_magnitude', default=None,
     help=('Magnitude for operations on Randaugment.'))
 
+flags.DEFINE_bool(
+    'use_full_image', default=False,
+    help=('Ignore bounding boxes and use full image'))
+
 flags.DEFINE_float(
     'lr', default=0.01,
     help=('Initial learning rate'))
@@ -147,6 +151,7 @@ def build_input_data(category_map, locations=None, is_training=True):
     is_training=is_training,
     use_eval_preprocess=FLAGS.fix_resolution,
     output_size=FLAGS.input_size,
+    crop_mode='full' if FLAGS.use_full_image else 'bbox',
     randaug_num_layers=FLAGS.randaug_num_layers,
     randaug_magnitude=FLAGS.randaug_magnitude,
     seed=FLAGS.random_seed)
