@@ -135,6 +135,7 @@ class JsonWBBoxInputProcessor:
       image = preprocessing.preprocess_image(image,
                                     output_size=self.output_size,
                                     bboxes=bbox,
+                                    use_square_crop=True,
                                     is_training=self.preprocess_for_train,
                                     resize_with_pad=self.resize_with_pad,
                                     randaug_num_layers=self.randaug_num_layers,

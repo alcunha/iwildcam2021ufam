@@ -78,7 +78,7 @@ def square_crop(image, bbox):
 def random_crop(image,
                 bboxes,
                 aspect_ratio_range=[0.75, 1.33],
-                area_range=[0.08, 1],
+                area_range=[0.65, 1],
                 min_object_covered=0.5,
                 max_attempts=100,
                 seed=None):
@@ -162,6 +162,7 @@ def preprocess_for_train(image,
                         output_size,
                         resize_with_pad=False,
                         bboxes=None,
+                        use_square_crop=False,
                         randaug_num_layers=None,
                         randaug_magnitude=None,
                         seed=None):
@@ -170,9 +171,11 @@ def preprocess_for_train(image,
     raise RuntimeError('Output size cannot be None for image preprocessing'
                        ' during training.')
 
-  if bboxes is not None:
-    image = square_crop(image, bboxes)
-  # image = random_crop(image, bboxes=None, seed=seed)
+  if use_square_crop:
+    if bboxes is not None:
+      image = square_crop(image, bboxes)
+  else:
+    image = random_crop(image, bboxes=None, seed=seed)
   image = resize_image(image, output_size, resize_with_pad)
   image = flip(image, seed)
 
@@ -189,8 +192,12 @@ def preprocess_for_train(image,
 
   return image
 
-def preprocess_for_eval(image, output_size, bbox=None, resize_with_pad=False):
-  if bbox is not None:
+def preprocess_for_eval(image,
+                        output_size,
+                        bbox=None,
+                        use_square_crop=False,
+                        resize_with_pad=False):
+  if use_square_crop and bbox is not None:
     image = square_crop(image, bbox)
 
   if output_size is not None:
@@ -204,6 +211,7 @@ def preprocess_image(image,
                      output_size=224,
                      is_training=False,
                      bboxes=None,
+                     use_square_crop=False,
                      resize_with_pad=False,
                      randaug_num_layers=None,
                      randaug_magnitude=None,
@@ -213,8 +221,13 @@ def preprocess_image(image,
                                 output_size,
                                 resize_with_pad,
                                 bboxes,
+                                use_square_crop,
                                 randaug_num_layers,
                                 randaug_magnitude,
                                 seed=seed)
   else:
-    return preprocess_for_eval(image, output_size, bboxes, resize_with_pad)
+    return preprocess_for_eval(image,
+                               output_size,
+                               bboxes,
+                               use_square_crop,
+                               resize_with_pad)
