@@ -13,12 +13,37 @@
 # limitations under the License.
 
 import json
+import math
+
+from absl import flags
 import pandas as pd
 import tensorflow as tf
 
 import preprocessing
+import utils
+
+flags.DEFINE_string(
+    'loc_encode', default='encode_cos_sin',
+    help=('Encoding type for location coordinates'))
+
+flags.DEFINE_string(
+    'date_encode', default='encode_cos_sin',
+    help=('Encoding type for date'))
+
+flags.DEFINE_bool(
+    'use_date_feats', default=True,
+    help=('Include date features to the encoded coordinates inputs'))
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
+FLAGS = flags.FLAGS
+
+def _encode_feat(feat, encode):
+  if encode == 'encode_cos_sin':
+    return tf.sin(math.pi*feat), tf.cos(math.pi*feat)
+  else:
+    raise RuntimeError('%s not implemented' % encode)
+
+  return feat
 
 class JsonWBBoxInputProcessor:
   def __init__(self,
@@ -37,6 +62,8 @@ class JsonWBBoxInputProcessor:
               randaug_num_layers=None,
               randaug_magnitude=None,
               use_fake_data=False,
+              provide_validity_info_output=False,
+              provide_coord_date_encoded_input=False,
               provide_instance_id=False,
               batch_drop_remainder=True,
               seed=None):
@@ -54,11 +81,36 @@ class JsonWBBoxInputProcessor:
     self.randaug_num_layers = randaug_num_layers
     self.randaug_magnitude = randaug_magnitude
     self.use_fake_data = use_fake_data
+    self.provide_validity_info_output = provide_validity_info_output
+    self.provide_coord_date_encoded_input = provide_coord_date_encoded_input
     self.provide_instance_id = provide_instance_id
     self.preprocess_for_train = is_training and not use_eval_preprocess
     self.batch_drop_remainder = batch_drop_remainder
     self.seed = seed
     self.num_instances = 0
+
+  def _validate_location_info_from_metadata(self, metadata_df):
+    if self.provide_coord_date_encoded_input:
+      if 'longitude' not in metadata_df.columns:
+        raise RuntimeError('Logintude info does not exists on dataset_json.'
+                          ' Please add to json.')
+      if 'latitude' not in metadata_df.columns:
+        raise RuntimeError('Latitude info does not exists on dataset_json.'
+                          ' Please add to json')
+      if 'date' not in metadata_df.columns:
+        raise RuntimeError('Date info does not exists on dataset_json.'
+                          ' Please add to json.')
+
+      metadata_df['date_c'] = metadata_df.apply(
+                            lambda row: utils.date2float(row['date']), axis=1)
+    else:
+      metadata_df['longitude'] = 0
+      metadata_df['latitude'] = 0
+      metadata_df['date_c'] = 0
+
+    metadata_df['valid'] = ~metadata_df.longitude.isna()
+
+    return metadata_df
 
   def _load_metadata(self):
     with tf.io.gfile.GFile(self.dataset_json, 'r') as json_file:
@@ -81,6 +133,8 @@ class JsonWBBoxInputProcessor:
                       megadetector_preds,
                       how='left',
                       on='id')
+
+    images = self._validate_location_info_from_metadata(images)
 
     return images
 
@@ -112,6 +166,10 @@ class JsonWBBoxInputProcessor:
     dataset = tf.data.Dataset.from_tensor_slices((
       metadata.file_name,
       bboxes,
+      metadata.valid,
+      metadata.longitude,
+      metadata.latitude,
+      metadata.date_c,
       metadata.category_id
     ))
 
@@ -130,10 +188,32 @@ class JsonWBBoxInputProcessor:
 
       return bbox
 
-    def _load_and_preprocess_image(filename, bboxes, label):
+    def _encode_lat_lon(lat, lon, date):
+      lat = _encode_feat(lat, FLAGS.loc_encode)
+      lon = _encode_feat(lon, FLAGS.loc_encode)
+      if FLAGS.use_date_feats:
+        date = date*2.0 - 1.0
+        date = _encode_feat(date, FLAGS.date_encode)
+        coord_date_encoded = tf.concat([lon, lat, date], axis=0)
+      else:
+        coord_date_encoded = tf.concat([lon, lat], axis=0)
+      coord_date_encoded = tf.cast(coord_date_encoded, tf.float32)
+
+      return coord_date_encoded
+
+    def _load_and_preprocess_image(filename,
+                                   bboxes,
+                                   valid,
+                                   lat,
+                                   lon,
+                                   date,
+                                   label):
       bbox = _decode_bboxes(bboxes)
       image = tf.io.read_file(self.dataset_dir + filename)
       image = tf.io.decode_jpeg(image, channels=3)
+
+      coord_date = _encode_lat_lon(lat, lon, date) \
+        if self.provide_coord_date_encoded_input else None
 
       if self.crop_mode == 'bbox':
         image = preprocessing.preprocess_image(image,
@@ -144,7 +224,8 @@ class JsonWBBoxInputProcessor:
                                     resize_with_pad=self.resize_with_pad,
                                     randaug_num_layers=self.randaug_num_layers,
                                     randaug_magnitude=self.randaug_magnitude)
-        inputs = image
+        inputs = (image, coord_date) if self.provide_coord_date_encoded_input \
+                                     else image
       elif self.crop_mode == 'full':
         image = preprocessing.preprocess_image(image,
                                     output_size=self.output_size,
@@ -154,7 +235,8 @@ class JsonWBBoxInputProcessor:
                                     resize_with_pad=self.resize_with_pad,
                                     randaug_num_layers=self.randaug_num_layers,
                                     randaug_magnitude=self.randaug_magnitude)
-        inputs = image
+        inputs = (image, coord_date) if self.provide_coord_date_encoded_input \
+                                     else image
       elif self.crop_mode == 'both':
         image1 = preprocessing.preprocess_image(image,
                                     output_size=self.output_size,
@@ -172,7 +254,8 @@ class JsonWBBoxInputProcessor:
                                     resize_with_pad=self.resize_with_pad,
                                     randaug_num_layers=self.randaug_num_layers,
                                     randaug_magnitude=self.randaug_magnitude)
-        inputs = (image1, image2)
+        inputs = (image1, image2, coord_date) \
+          if self.provide_coord_date_encoded_input else (image1, image2)
       else:
         raise ValueError('Invalid crop_mode, used %s.' % self.crop_mode)
 
@@ -182,10 +265,14 @@ class JsonWBBoxInputProcessor:
       label = tf.reshape(label, shape=())
       label = tf.one_hot(label, self.num_classes)
 
-      if self.provide_instance_id:
-        return inputs, (label, filename)
+      if self.provide_validity_info_output:
+        valid = tf.cast(valid, tf.float32)
+        outputs = (label, valid, filename) if self.provide_instance_id \
+                                           else (label, valid)
+      else:
+        outputs = (label, filename) if self.provide_instance_id else label
 
-      return inputs, label
+      return inputs, outputs
 
     dataset = dataset.map(_load_and_preprocess_image,
                           num_parallel_calls=AUTOTUNE)
@@ -197,3 +284,42 @@ class JsonWBBoxInputProcessor:
       dataset.take(1).repeat()
 
     return dataset, self.num_instances
+
+class RandSpatioTemporalGenerator:
+  def __init__(self, rand_type='spherical'):
+    self.rand_type = rand_type
+
+  def _encode_feat(self, feat, encode):
+    if encode == 'encode_cos_sin':
+      feats = tf.concat([
+        tf.sin(math.pi*feat),
+        tf.cos(math.pi*feat)], axis=1)
+    else:
+      raise RuntimeError('%s not implemented' % encode)
+
+    return feats
+
+  def get_rand_samples(self, batch_size):
+    if self.rand_type == 'spherical':
+      rand_feats = tf.random.uniform(shape=(batch_size, 3),
+                                    dtype=tf.float32)
+      theta1 = 2.0*math.pi*rand_feats[:,0]
+      theta2 = tf.acos(2.0*rand_feats[:,1] - 1.0)
+      lat = 1.0 - 2.0*theta2/math.pi
+      lon = (theta1/math.pi) - 1.0
+      time = rand_feats[:,2]*2.0 - 1.0
+
+      lon = tf.expand_dims(lon, axis=-1)
+      lat = tf.expand_dims(lat, axis=-1)
+      time = tf.expand_dims(time, axis=-1)
+    else:
+      raise RuntimeError('%s rand type not implemented' % self.rand_type)
+
+    lon = self._encode_feat(lon, FLAGS.loc_encode)
+    lat = self._encode_feat(lat, FLAGS.loc_encode)
+    time = self._encode_feat(time, FLAGS.date_encode)
+
+    if FLAGS.use_date_feats:
+      return tf.concat([lon, lat, time], axis=1)
+    else:
+      return tf.concat([lon, lat], axis=1)
