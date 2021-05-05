@@ -98,14 +98,14 @@ def _load_model(num_classes):
   model_bbox = model_builder.create(model_name=FLAGS.model_name,
                               num_classes=num_classes,
                               input_size=FLAGS.input_size,
-                              freeze_layers=True)
+                              unfreeze_layers=0)
   checkpoint_path = os.path.join(FLAGS.ckpt_dir_bbox, "ckp")
   model_bbox.load_weights(checkpoint_path)
 
   model_full = model_builder.create(model_name=FLAGS.model_name,
                               num_classes=num_classes,
                               input_size=FLAGS.input_size,
-                              freeze_layers=True)
+                              unfreeze_layers=0)
   checkpoint_path = os.path.join(FLAGS.ckpt_dir_full, "ckp")
   model_full.load_weights(checkpoint_path)
 

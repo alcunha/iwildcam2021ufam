@@ -14,17 +14,9 @@
 
 import collections
 
-from absl import flags
 import tensorflow as tf
 
 from utils import is_number
-
-FLAGS = flags.FLAGS
-
-flags.DEFINE_integer(
-    'unfreeze_layers', default=0,
-    help=('Number of layers to unfreeze at the end of the image base model '
-          ' when freezing it for fine-tuning.'))
 
 ModelSpecs = collections.namedtuple("ModelSpecs", [
     'name', 'func', 'input_size', 'classes', 'activation'
@@ -110,16 +102,16 @@ def _get_keras_base_model(specs, model_name):
 
   return base_model
 
-def _create_model_from_specs(specs, model_name, freeze_layers, seed=None):
-
+def _create_model_from_specs(specs, model_name, unfreeze_layers=0, seed=None):
+  training = unfreeze_layers == -1
   image_input = tf.keras.Input(shape=(specs.input_size, specs.input_size, 3))
   base_model = _get_keras_base_model(specs, model_name)
-  base_model.trainable = not freeze_layers
-  if FLAGS.unfreeze_layers > 0:
-    for layer in base_model.layers[-FLAGS.unfreeze_layers:]:
+  base_model.trainable = training
+  if unfreeze_layers > 0:
+    for layer in base_model.layers[-unfreeze_layers:]:
       layer.trainable = True
 
-  x = base_model(image_input, training=not freeze_layers)
+  x = base_model(image_input, training=training)
   x = tf.keras.layers.GlobalAveragePooling2D()(x)
   inputs = [image_input]
 
@@ -135,7 +127,7 @@ def create(model_name,
            num_classes,
            input_size=None,
            classifier_activation="softmax",
-           freeze_layers=False,
+           unfreeze_layers=-1,
            seed=None):
 
   model_name_base = model_name.split('_')[0]
@@ -151,4 +143,4 @@ def create(model_name,
   if input_size is not None:
     specs = specs._replace(input_size=input_size)
 
-  return _create_model_from_specs(specs, model_name, freeze_layers, seed)
+  return _create_model_from_specs(specs, model_name, unfreeze_layers, seed)
