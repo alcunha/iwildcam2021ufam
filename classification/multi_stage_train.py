@@ -128,15 +128,18 @@ flags.DEFINE_float(
 
 flags.DEFINE_integer(
     'epochs_stage1', default=4,
-    help=('Number of epochs to training during stage 1'))
+    help=('Number of epochs to training during stage 1. Set to 0 do skip this'
+          ' stage.'))
 
 flags.DEFINE_integer(
     'epochs_stage2', default=10,
-    help=('Number of epochs to training during stage 2'))
+    help=('Number of epochs to training during stage 2. Set to 0 do skip this'
+          ' stage.'))
 
 flags.DEFINE_integer(
     'epochs_stage3', default=2,
-    help=('Number of epochs to training during stage 3'))
+    help=('Number of epochs to training during stage 3. Set to 0 do skip this'
+          ' stage.'))
 
 flags.DEFINE_integer(
     'unfreeze_layers', default=0,
@@ -266,14 +269,16 @@ def main(_):
   strategy = tf.distribute.MirroredStrategy()
   print('Number of devices: {}'.format(strategy.num_replicas_in_sync))
 
+  prev_checkpoint = FLAGS.load_checkpoint
+
   # Stage 1 - we train only the classifier layer
   with strategy.scope():
     model = get_model(category_map.get_num_classes(),
                       FLAGS.input_size,
                       unfreeze_layers=0)
   model.summary()
-  if FLAGS.load_checkpoint is not None:
-    checkpoint_path = os.path.join(FLAGS.load_checkpoint, "ckp")
+  if prev_checkpoint is not None:
+    checkpoint_path = os.path.join(prev_checkpoint, "ckp")
     model.load_weights(checkpoint_path)
   train_model(model,
               lr=FLAGS.lr_stage1,
@@ -282,6 +287,8 @@ def main(_):
               train_data_and_size=(dataset, num_instances),
               val_data_and_size=(val_dataset, val_num_instances),
               strategy=strategy)
+  if FLAGS.epochs_stage1 > 0:
+    prev_checkpoint = os.path.join(FLAGS.model_dir, 'stage1')
 
   # Stage 2 - we fine tune all layers
   with strategy.scope():
@@ -289,8 +296,9 @@ def main(_):
                       FLAGS.input_size,
                       unfreeze_layers=-1)
   model.summary()
-  checkpoint_path = os.path.join(FLAGS.model_dir, 'stage1', "ckp")
-  model.load_weights(checkpoint_path)
+  if prev_checkpoint is not None:
+    checkpoint_path = os.path.join(prev_checkpoint, "ckp")
+    model.load_weights(checkpoint_path)
   train_model(model,
               lr=FLAGS.lr_stage2,
               epochs=FLAGS.epochs_stage2,
@@ -298,6 +306,8 @@ def main(_):
               train_data_and_size=(dataset, num_instances),
               val_data_and_size=(val_dataset, val_num_instances),
               strategy=strategy)
+  if FLAGS.epochs_stage2 > 0:
+    prev_checkpoint = os.path.join(FLAGS.model_dir, 'stage2')
 
   # Stage 3 - we fine tune the last N layers and use higher input size; we use
   # the evaluation preprocessing of images during training
@@ -323,8 +333,9 @@ def main(_):
                       FLAGS.input_size_stage3,
                       unfreeze_layers=FLAGS.unfreeze_layers)
   model.summary()
-  checkpoint_path = os.path.join(FLAGS.model_dir, 'stage2', "ckp")
-  model.load_weights(checkpoint_path)
+  if prev_checkpoint is not None:
+    checkpoint_path = os.path.join(prev_checkpoint, "ckp")
+    model.load_weights(checkpoint_path)
   train_model(model,
               lr=FLAGS.lr_stage3,
               epochs=FLAGS.epochs_stage3,
