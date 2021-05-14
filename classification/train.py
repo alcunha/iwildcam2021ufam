@@ -29,6 +29,7 @@ import numpy as np
 import tensorflow as tf
 
 from iwildcamlib import CategoryMap
+import bags
 import dataloader
 import model_builder
 import train_image_classifier
@@ -45,6 +46,19 @@ flags.DEFINE_string(
 flags.DEFINE_integer(
     'input_size', default=224,
     help=('Input size of the model'))
+
+flags.DEFINE_string(
+    'base_model_weights', default='imagenet',
+    help=('Path to h5 weights file to be loaded into the base model during'
+          ' model build procedure.'))
+
+flags.DEFINE_bool(
+    'use_bags', default=False,
+    help=('Use Balanced Group Softmax to train model'))
+
+flags.DEFINE_integer(
+    'empty_class_id', default=0,
+    help=('Empty class id for balanced group softmax'))
 
 flags.DEFINE_integer(
     'batch_size', default=32,
@@ -146,13 +160,17 @@ def load_train_validation_split():
 
   return json_data['train'], json_data['validation']
 
-def build_input_data(category_map, locations=None, is_training=True):
+def build_input_data(category_map,
+                     locations=None,
+                     is_training=True,
+                     bal_group_softmax=None):
   input_data =  dataloader.JsonWBBoxInputProcessor(
     dataset_json=FLAGS.annotations_json,
     dataset_dir=FLAGS.dataset_dir,
     megadetector_results_json=FLAGS.megadetector_results_json,
     batch_size=FLAGS.batch_size,
     category_map=category_map,
+    bal_group_softmax=bal_group_softmax,
     selected_locations=locations,
     is_training=is_training,
     use_eval_preprocess=FLAGS.fix_resolution,
@@ -164,12 +182,14 @@ def build_input_data(category_map, locations=None, is_training=True):
 
   return input_data.make_source_dataset()
 
-def get_model(num_classes):
+def get_model(num_classes, bal_group_softmax=None):
   model = model_builder.create(
     model_name=FLAGS.model_name,
     num_classes=num_classes,
     input_size=FLAGS.input_size,
     unfreeze_layers=(FLAGS.unfreeze_layers if FLAGS.fix_resolution else -1),
+    bags=bal_group_softmax,
+    base_model_weights=FLAGS.base_model_weights,
     seed=FLAGS.random_seed)
 
   return model
@@ -220,15 +240,28 @@ def main(_):
   category_map = CategoryMap(FLAGS.annotations_json)
   if FLAGS.train_dataset_split is not None:
     train_loc, val_loc = load_train_validation_split()
+    bal_group_softmax = bags.BalancedGroupSoftmax(
+        FLAGS.annotations_json,
+        category_map,
+        FLAGS.empty_class_id,
+        selected_locations=train_loc) if FLAGS.use_bags else None
+
     dataset, num_instances = build_input_data(category_map,
-                                              locations=train_loc,
-                                              is_training=True)
+                                          locations=train_loc,
+                                          is_training=True,
+                                          bal_group_softmax=bal_group_softmax)
     val_dataset, val_num_instances = build_input_data(category_map,
-                                                      locations=val_loc,
-                                                      is_training=False)
+                                          locations=val_loc,
+                                          is_training=False,
+                                          bal_group_softmax=bal_group_softmax)
   else:
+    bal_group_softmax = bags.BalancedGroupSoftmax(
+        FLAGS.annotations_json,
+        category_map,
+        FLAGS.empty_class_id) if FLAGS.use_bags else None
     dataset, num_instances = build_input_data(category_map,
-                                              is_training=True)
+                                          is_training=True,
+                                          bal_group_softmax=bal_group_softmax)
     val_dataset = None
     val_num_instances = 0
 
@@ -236,7 +269,7 @@ def main(_):
   print('Number of devices: {}'.format(strategy.num_replicas_in_sync))
 
   with strategy.scope():
-    model = get_model(category_map.get_num_classes())
+    model = get_model(category_map.get_num_classes(), bal_group_softmax)
 
   model.summary()
 

@@ -80,7 +80,7 @@ def _get_mobilenet_params(model_name):
 
   return alpha
 
-def _get_keras_base_model(specs, model_name):
+def _get_keras_base_model(specs, model_name, weights='imagenet'):
   base_model = None
 
   if specs.name == 'mobilenetv2':
@@ -89,23 +89,29 @@ def _get_keras_base_model(specs, model_name):
       input_shape=(specs.input_size, specs.input_size, 3),
       alpha=alpha,
       include_top=False,
-      weights='imagenet'
+      weights=weights
     )
   elif specs.name.startswith('efficientnet'):
     base_model = specs.func(
       input_shape=(specs.input_size, specs.input_size, 3),
       include_top=False,
-      weights='imagenet'
+      weights=weights
     )
   else:
     raise RuntimeError('Model %s not implemented' % specs.name)
 
   return base_model
 
-def _create_model_from_specs(specs, model_name, unfreeze_layers=0, seed=None):
+def _create_model_from_specs(specs,
+                             model_name,
+                             unfreeze_layers=0,
+                             bags=None,
+                             return_base_model=False,
+                             base_model_weights='imagenet',
+                             seed=None):
   training = unfreeze_layers == -1
   image_input = tf.keras.Input(shape=(specs.input_size, specs.input_size, 3))
-  base_model = _get_keras_base_model(specs, model_name)
+  base_model = _get_keras_base_model(specs, model_name, base_model_weights)
   base_model.trainable = training
   if unfreeze_layers > 0:
     for layer in base_model.layers[-unfreeze_layers:]:
@@ -115,11 +121,18 @@ def _create_model_from_specs(specs, model_name, unfreeze_layers=0, seed=None):
   x = tf.keras.layers.GlobalAveragePooling2D()(x)
   inputs = [image_input]
 
-  outputs = tf.keras.layers.Dense(
-      specs.classes,
-      activation=specs.activation,
-      kernel_initializer=tf.keras.initializers.glorot_uniform(seed))(x)
-  model = tf.keras.models.Model(inputs=inputs, outputs=[outputs])
+  if bags is not None:
+    outputs = bags.create_classif_header(x)
+  else:
+    outputs = tf.keras.layers.Dense(
+        specs.classes,
+        activation=specs.activation,
+        kernel_initializer=tf.keras.initializers.glorot_uniform(seed))(x)
+    outputs = [outputs]
+  model = tf.keras.models.Model(inputs=inputs, outputs=outputs)
+
+  if return_base_model:
+    return model, base_model
 
   return model
 
@@ -128,6 +141,9 @@ def create(model_name,
            input_size=None,
            classifier_activation="softmax",
            unfreeze_layers=-1,
+           bags=None,
+           return_base_model=False,
+           base_model_weights='imagenet',
            seed=None):
 
   model_name_base = model_name.split('_')[0]
@@ -143,4 +159,10 @@ def create(model_name,
   if input_size is not None:
     specs = specs._replace(input_size=input_size)
 
-  return _create_model_from_specs(specs, model_name, unfreeze_layers, seed)
+  return _create_model_from_specs(specs,
+                                  model_name,
+                                  unfreeze_layers,
+                                  bags,
+                                  return_base_model,
+                                  base_model_weights,
+                                  seed)

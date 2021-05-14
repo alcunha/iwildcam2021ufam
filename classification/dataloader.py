@@ -52,6 +52,7 @@ class JsonWBBoxInputProcessor:
               megadetector_results_json,
               batch_size,
               category_map,
+              bal_group_softmax=None,
               crop_mode='bbox',
               selected_locations=None,
               default_empty_label=0,
@@ -72,6 +73,7 @@ class JsonWBBoxInputProcessor:
     self.megadetector_results_json = megadetector_results_json
     self.batch_size = batch_size
     self.category_map = category_map
+    self.bal_group_softmax = bal_group_softmax
     self.crop_mode = crop_mode
     self.selected_locations = selected_locations
     self.is_training = is_training
@@ -259,11 +261,14 @@ class JsonWBBoxInputProcessor:
       else:
         raise ValueError('Invalid crop_mode, used %s.' % self.crop_mode)
 
-      def _get_idx_label(label):
-        return self.category_map.category_to_index(label.numpy())
-      label = tf.py_function(func=_get_idx_label, inp=[label], Tout=tf.int32)
-      label = tf.reshape(label, shape=())
-      label = tf.one_hot(label, self.num_classes)
+      if self.bal_group_softmax is not None:
+        label = self.bal_group_softmax.process_label(label)
+      else:
+        def _get_idx_label(label):
+          return self.category_map.category_to_index(label.numpy())
+        label = tf.py_function(func=_get_idx_label, inp=[label], Tout=tf.int32)
+        label = tf.reshape(label, shape=())
+        label = tf.one_hot(label, self.num_classes)
 
       if self.provide_validity_info_output:
         valid = tf.cast(valid, tf.float32)
@@ -276,9 +281,17 @@ class JsonWBBoxInputProcessor:
 
     dataset = dataset.map(_load_and_preprocess_image,
                           num_parallel_calls=AUTOTUNE)
-    dataset = dataset.prefetch(buffer_size=AUTOTUNE)
     dataset = dataset.batch(self.batch_size,
                             drop_remainder=self.batch_drop_remainder)
+
+    if self.bal_group_softmax is not None:
+      def _generate_masks(inputs, outputs):
+        masks = self.bal_group_softmax.generate_balancing_mask(outputs)
+        return (inputs, outputs, masks)
+      dataset = dataset.map(_generate_masks,
+                            num_parallel_calls=AUTOTUNE)
+
+    dataset = dataset.prefetch(buffer_size=AUTOTUNE)
 
     if self.use_fake_data:
       dataset.take(1).repeat()
