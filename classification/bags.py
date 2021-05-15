@@ -34,9 +34,11 @@ class BalancedGroupSoftmax:
     self.empty_class_id = empty_class_id
     self.label2binlabel = {}
     self.groups_counts = [1] * (n_groups + 1)
+    self.predict_tables = []
 
     dataset_df = self._load_dataset(dataset_json, selected_locations)
     self._generate_binlabel_idx(dataset_df)
+    self._generate_predict_tables()
 
   def _load_dataset(self, dataset_json, selected_locations):
     with tf.io.gfile.GFile(dataset_json, 'r') as json_file:
@@ -81,6 +83,16 @@ class BalancedGroupSoftmax:
       self.groups_counts[group_id] += 1
       self.label2binlabel[categ] = binlabel
 
+  def _generate_predict_tables(self):
+    for i in range(self.n_groups + 1):
+      self.predict_tables.append(
+        np.zeros(shape=(self.groups_counts[i],
+                        self.category_map.get_num_classes())))
+
+    for label, binlabel in self.label2binlabel.items():
+      group = np.asarray(binlabel).argmax()
+      self.predict_tables[group][binlabel[group]][label] = 1.0
+
   def create_classif_header(self, head_features):
     outputs = []
 
@@ -90,6 +102,41 @@ class BalancedGroupSoftmax:
       outputs.append(output)
 
     return outputs
+
+  def _create_map_layer(self, inputs, n_inputs, n_outputs, weights):
+    map_layer = tf.keras.layers.Dense(n_outputs, use_bias=False)
+    map_layer(tf.convert_to_tensor(np.ones((1, n_inputs)), dtype=tf.float32))
+    map_layer.set_weights([weights])
+
+    return map_layer(inputs)
+
+  def create_prediction_model(self, trained_model):
+    fg_prob_map = np.array([np.ones(self.category_map.get_num_classes()),
+                            np.zeros(self.category_map.get_num_classes())])
+    fg_prob = self._create_map_layer(trained_model.outputs[0],
+                                     self.groups_counts[0],
+                                     self.category_map.get_num_classes(),
+                                     fg_prob_map)
+
+    mapped_predictions = []
+    for output, group_size, predict_tbl in zip(trained_model.outputs,
+                                               self.groups_counts,
+                                               self.predict_tables):
+      layer_map = self._create_map_layer(output,
+                                          group_size,
+                                          self.category_map.get_num_classes(),
+                                          predict_tbl)
+      mapped_predictions.append(layer_map)
+
+    scaled_mapped_predictions = [mapped_predictions[0]]
+    for map_pred in mapped_predictions[1:]:
+      scaled_map_pred = tf.keras.layers.Multiply()([map_pred, fg_prob])
+      scaled_mapped_predictions.append(scaled_map_pred)
+
+    preds = tf.keras.layers.Add()(scaled_mapped_predictions)
+    model = tf.keras.models.Model(inputs=trained_model.inputs, outputs=preds)
+
+    return model
 
   def process_label(self, label):
     def _get_idx_label(label):
