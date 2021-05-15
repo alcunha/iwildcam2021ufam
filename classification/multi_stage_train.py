@@ -319,67 +319,67 @@ def main(_):
               train_data_and_size=(dataset, num_instances),
               val_data_and_size=(val_dataset, val_num_instances),
               strategy=strategy)
-  # if FLAGS.epochs_stage1 > 0:
-  #   prev_checkpoint = os.path.join(FLAGS.model_dir, 'stage1')
+  if FLAGS.epochs_stage1 > 0:
+    prev_checkpoint = os.path.join(FLAGS.model_dir, 'stage1')
 
-  # # Stage 2 - we fine tune all layers
-  # with strategy.scope():
-  #   model = get_model(category_map.get_num_classes(),
-  #                     FLAGS.input_size,
-  #                     unfreeze_layers=-1,
-  #                     bal_group_softmax=bal_group_softmax)
-  # model.summary()
-  # if prev_checkpoint is not None:
-  #   checkpoint_path = os.path.join(prev_checkpoint, "ckp")
-  #   model.load_weights(checkpoint_path)
-  # train_model(model,
-  #             lr=FLAGS.lr_stage2,
-  #             epochs=FLAGS.epochs_stage2,
-  #             model_dir=os.path.join(FLAGS.model_dir, 'stage2'),
-  #             train_data_and_size=(dataset, num_instances),
-  #             val_data_and_size=(val_dataset, val_num_instances),
-  #             strategy=strategy)
-  # if FLAGS.epochs_stage2 > 0:
-  #   prev_checkpoint = os.path.join(FLAGS.model_dir, 'stage2')
+  # Stage 2 - we fine tune all layers
+  with strategy.scope():
+    model = get_model(category_map.get_num_classes(),
+                      FLAGS.input_size,
+                      unfreeze_layers=-1,
+                      bal_group_softmax=bal_group_softmax)
+  model.summary()
+  if prev_checkpoint is not None:
+    checkpoint_path = os.path.join(prev_checkpoint, "ckp")
+    model.load_weights(checkpoint_path)
+  train_model(model,
+              lr=FLAGS.lr_stage2,
+              epochs=FLAGS.epochs_stage2,
+              model_dir=os.path.join(FLAGS.model_dir, 'stage2'),
+              train_data_and_size=(dataset, num_instances),
+              val_data_and_size=(val_dataset, val_num_instances),
+              strategy=strategy)
+  if FLAGS.epochs_stage2 > 0:
+    prev_checkpoint = os.path.join(FLAGS.model_dir, 'stage2')
 
-  # # Stage 3 - we fine tune the last N layers and use higher input size; we use
-  # # the evaluation preprocessing of images during training
-  # if FLAGS.train_dataset_split is not None:
-  #   dataset, _ = build_input_data(category_map,
-  #                                 FLAGS.input_size_stage3,
-  #                                 locations=train_loc,
-  #                                 is_training=True,
-  #                                 use_eval_preprocess=True,
-  #                                 bal_group_softmax=bal_group_softmax)
-  #   val_dataset, _ = build_input_data(category_map,
-  #                                     FLAGS.input_size_stage3,
-  #                                     locations=val_loc,
-  #                                     is_training=False,
-  #                                     use_eval_preprocess=True,
-  #                                     bal_group_softmax=bal_group_softmax)
-  # else:
-  #   dataset, _ = build_input_data(category_map,
-  #                                 FLAGS.input_size_stage3,
-  #                                 is_training=True,
-  #                                 use_eval_preprocess=True,
-  #                                 bal_group_softmax=bal_group_softmax)
-  #   val_dataset = None
-  # with strategy.scope():
-  #   model = get_model(category_map.get_num_classes(),
-  #                     FLAGS.input_size_stage3,
-  #                     unfreeze_layers=FLAGS.unfreeze_layers,
-  #                     bal_group_softmax=bal_group_softmax)
-  # model.summary()
-  # if prev_checkpoint is not None:
-  #   checkpoint_path = os.path.join(prev_checkpoint, "ckp")
-  #   model.load_weights(checkpoint_path)
-  # train_model(model,
-  #             lr=FLAGS.lr_stage3,
-  #             epochs=FLAGS.epochs_stage3,
-  #             model_dir=FLAGS.model_dir,
-  #             train_data_and_size=(dataset, num_instances),
-  #             val_data_and_size=(val_dataset, val_num_instances),
-  #             strategy=strategy)
+  # Stage 3 - we fine tune the last N layers and use higher input size; we use
+  # the evaluation preprocessing of images during training
+  if FLAGS.train_dataset_split is not None:
+    dataset, _ = build_input_data(category_map,
+                                  FLAGS.input_size_stage3,
+                                  locations=train_loc,
+                                  is_training=True,
+                                  use_eval_preprocess=True,
+                                  bal_group_softmax=bal_group_softmax)
+    val_dataset, _ = build_input_data(category_map,
+                                      FLAGS.input_size_stage3,
+                                      locations=val_loc,
+                                      is_training=False,
+                                      use_eval_preprocess=True,
+                                      bal_group_softmax=bal_group_softmax)
+  else:
+    dataset, _ = build_input_data(category_map,
+                                  FLAGS.input_size_stage3,
+                                  is_training=True,
+                                  use_eval_preprocess=True,
+                                  bal_group_softmax=bal_group_softmax)
+    val_dataset = None
+  with strategy.scope():
+    model = get_model(category_map.get_num_classes(),
+                      FLAGS.input_size_stage3,
+                      unfreeze_layers=FLAGS.unfreeze_layers,
+                      bal_group_softmax=bal_group_softmax)
+  model.summary()
+  if prev_checkpoint is not None:
+    checkpoint_path = os.path.join(prev_checkpoint, "ckp")
+    model.load_weights(checkpoint_path)
+  train_model(model,
+              lr=FLAGS.lr_stage3,
+              epochs=FLAGS.epochs_stage3,
+              model_dir=FLAGS.model_dir,
+              train_data_and_size=(dataset, num_instances),
+              val_data_and_size=(val_dataset, val_num_instances),
+              strategy=strategy)
 
 if __name__ == '__main__':
   app.run(main)

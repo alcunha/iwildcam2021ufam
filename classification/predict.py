@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import os
 import random
 
@@ -21,6 +22,7 @@ import numpy as np
 import tensorflow as tf
 
 from iwildcamlib import CategoryMap, generate_submission
+import bags
 import dataloader
 import model_builder
 
@@ -35,6 +37,14 @@ flags.DEFINE_string(
 flags.DEFINE_integer(
     'input_size', default=224,
     help=('Input size of the model'))
+
+flags.DEFINE_bool(
+    'use_bags', default=False,
+    help=('Use Balanced Group Softmax to train model'))
+
+flags.DEFINE_integer(
+    'empty_class_id', default=0,
+    help=('Empty class id for balanced group softmax'))
 
 flags.DEFINE_bool(
     'use_full_image', default=False,
@@ -52,6 +62,11 @@ flags.DEFINE_string(
     'annotations_json', default=None,
     help=('Path to json file containing the training annotations json for'
           ' the iWildCam2021 competition'))
+
+flags.DEFINE_string(
+    'train_dataset_split', default=None,
+    help=('Path to json file containing the train/validation split based on'
+          ' locations.'))
 
 flags.DEFINE_string(
     'test_info_json', default=None,
@@ -86,13 +101,26 @@ flags.mark_flag_as_required('dataset_dir')
 flags.mark_flag_as_required('megadetector_results_json')
 flags.mark_flag_as_required('submission_file_path')
 
-def _load_model(num_classes):
+def load_train_validation_split():
+  if FLAGS.train_dataset_split is None:
+    return None, None
+
+  with tf.io.gfile.GFile(FLAGS.train_dataset_split, 'r') as json_file:
+    json_data = json.load(json_file)
+
+  return json_data['train'], json_data['validation']
+
+def _load_model(num_classes, bal_group_softmax=None):
   model = model_builder.create(model_name=FLAGS.model_name,
                               num_classes=num_classes,
                               input_size=FLAGS.input_size,
-                              unfreeze_layers=0)
+                              unfreeze_layers=0,
+                              bags=bal_group_softmax)
   checkpoint_path = os.path.join(FLAGS.ckpt_dir, "ckp")
   model.load_weights(checkpoint_path)
+
+  if bal_group_softmax is not None:
+    model = bal_group_softmax.create_prediction_model(model)
 
   return model
 
@@ -149,8 +177,15 @@ def main(_):
   set_random_seeds()
 
   category_map = CategoryMap(FLAGS.annotations_json)
+  train_loc, _ = load_train_validation_split()
+  bal_group_softmax = bags.BalancedGroupSoftmax(
+        FLAGS.annotations_json,
+        category_map,
+        FLAGS.empty_class_id,
+        selected_locations=train_loc) if FLAGS.use_bags else None
+
   dataset, _ = _build_input_data(category_map)
-  model = _load_model(category_map.get_num_classes())
+  model = _load_model(category_map.get_num_classes(), bal_group_softmax)
 
   instance_ids, predictions = predict_classifier(model, dataset)
   instance_ids = format_instance_id(instance_ids)  
