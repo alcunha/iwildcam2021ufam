@@ -16,6 +16,7 @@ import json
 import math
 
 from absl import flags
+import numpy as np
 import pandas as pd
 import tensorflow as tf
 
@@ -297,6 +298,144 @@ class JsonWBBoxInputProcessor:
       dataset.take(1).repeat()
 
     return dataset, self.num_instances
+
+class TrackInputProcessor:
+  def __init__(self,
+               dataset_json,
+               dataset_dir,
+               tracks_json,
+               num_images=8,
+               output_size=224,
+               resize_with_pad=False,):
+    self.dataset_json = dataset_json
+    self.dataset_dir = dataset_dir
+    self.tracks_json = tracks_json
+    self.num_images = num_images
+    self.output_size = output_size
+    self.resize_with_pad = resize_with_pad
+
+  def _load_metadata(self):
+    with tf.io.gfile.GFile(self.dataset_json, 'r') as json_file:
+      json_data = json.load(json_file)
+    images = pd.DataFrame(json_data['images'])
+
+    with tf.io.gfile.GFile(self.tracks_json, 'r') as json_file:
+      json_data = json.load(json_file)
+    tracks = pd.DataFrame(json_data)
+    tracks = pd.merge(tracks,
+                      images,
+                      how='left',
+                      left_on='img_id',
+                      right_on='id')
+
+    return tracks
+
+  def _process_tracks(self, track_data):
+    seqs_list = []
+    tracks_list = []
+    filenames_list = []
+    bboxes_list = []
+    tta_list = []
+    height_list = []
+    width_list = []
+    for track_id in list(track_data.track_id.unique()):
+      images = track_data[track_data.track_id == track_id]
+      if len(images) > self.num_images:
+        images = images.sample(self.num_images)
+
+      filenames = []
+      bboxes = []
+      tta = []
+      height = []
+      width = []
+      # original bboxes
+      for _, img in images.iterrows():
+        filenames.append(img['file_name'])
+        bboxes.append(np.array(img['bbox_tlwh']))
+        tta.append(False)
+        height.append(img['height'])
+        width.append(img['width'])
+
+      #extra bboxes to be used with test time augmentation
+      if len(images) < self.num_images:
+        images_sample = images.sample(self.num_images - len(images),
+                                      replace=True)
+        for _, img in images_sample.iterrows():
+          filenames.append(img['file_name'])
+          bboxes.append(np.array(img['bbox_tlwh']))
+          tta.append(True)
+          height.append(img['height'])
+          width.append(img['width'])
+
+      seqs_list.append(images['seq_id_x'].iloc[0])
+      tracks_list.append(track_id)
+      filenames_list.append(filenames)
+      bboxes_list.append(bboxes)
+      tta_list.append(tta)
+      height_list.append(height)
+      width_list.append(width)
+
+    return (seqs_list, tracks_list, filenames_list, bboxes_list, tta_list, \
+             height_list, width_list)
+
+  def make_source_dataset(self):
+    metadata = self._load_metadata()
+    dataset = tf.data.Dataset.from_tensor_slices(
+        self._process_tracks(metadata))
+
+    def _decode_bbox(bbox, height, width):
+      bbox = tf.cast(bbox, tf.float32) / tf.cast([width, height, width, height],
+                                                 tf.float32)
+      bbox = tf.stack([bbox[:2], bbox[:2] + bbox[2:]], axis=0)
+      bbox = tf.reshape(bbox, shape=[1, 1, 4])
+      bbox = tf.cast(bbox, dtype=tf.float32)
+
+      return bbox
+
+    def _load_and_preprocess_image(filename,
+                                   bbox,
+                                   tta,
+                                   height,
+                                   width):
+      image = tf.io.read_file(self.dataset_dir + filename)
+      image = tf.io.decode_jpeg(image, channels=3)
+      bbox = _decode_bbox(bbox, height, width)
+      image = tf.cond(tta,
+                      lambda: preprocessing.preprocess_image(
+                                    image,
+                                    output_size=self.output_size,
+                                    bboxes=bbox,
+                                    use_square_crop=True,
+                                    is_training=True,
+                                    resize_with_pad=self.resize_with_pad),
+                      lambda: preprocessing.preprocess_image(
+                                    image,
+                                    output_size=self.output_size,
+                                    bboxes=bbox,
+                                    use_square_crop=True,
+                                    is_training=False,
+                                    resize_with_pad=self.resize_with_pad))
+      return image
+
+    def _preprocess_track(seq_id,
+                          track_id,
+                          filenames,
+                          bboxes,
+                          tta,
+                          heights,
+                          widths):
+
+      images = [_load_and_preprocess_image(filenames[i],
+                                           bboxes[i],
+                                           tta[i],
+                                           heights[i],
+                                           widths[i])
+                for i in range(self.num_images)]
+
+      return tuple(images), (seq_id, track_id)
+    dataset = dataset.map(_preprocess_track, num_parallel_calls=AUTOTUNE)
+
+    return dataset
 
 class RandSpatioTemporalGenerator:
   def __init__(self, rand_type='spherical'):
