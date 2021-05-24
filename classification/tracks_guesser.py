@@ -21,10 +21,12 @@ class TrackGuesser:
   def __init__(self,
                dataset_json,
                megadetector_results_json,
-               megadetector_threshold=0.9):
+               megadetector_threshold=0.9,
+               track_nobbox=False,):
     self.dataset_json = dataset_json
     self.megadetector_results_json = megadetector_results_json
     self.megadetector_threshold = megadetector_threshold
+    self.track_nobbox = track_nobbox
     self._load_data(dataset_json, megadetector_results_json)
     self._count_detections()
 
@@ -73,6 +75,19 @@ class TrackGuesser:
 
     return tracks
 
+  def _create_track_nobbox(self, seq_id):
+    extra_track = []
+    images = self.dataset_info[self.dataset_info.seq_id == seq_id]
+    for _, row in images.iterrows():
+      bbox_info = {
+        'seq_id': seq_id,
+        'img_id': row['id'],
+        'track_id': seq_id + 'a',
+        'bbox_tlwh': [0.0, 0.0, row['width'], row['height']]
+      }
+      extra_track.append(bbox_info)
+    return extra_track
+
   def guess_tracks(self, confirmed_tracks_df):
     extra_tracks = []
     empty_extra_tracks = 0
@@ -83,20 +98,17 @@ class TrackGuesser:
                                         confirmed_tracks_df.seq_id_x==seq_id])
 
       if max_bbox == 0:
-        images = self.dataset_info[self.dataset_info.seq_id == seq_id]
-        empty_extra_tracks += 1
-        for _, row in images.iterrows():
-          bbox_info = {
-            'seq_id': seq_id,
-            'img_id': row['id'],
-            'track_id': seq_id + 'a',
-            'bbox_tlwh': [0.0, 0.0, row['width'], row['height']]
-          }
-          extra_tracks.append(bbox_info)
+        if self.track_nobbox:
+          extra_track = self._create_track_nobbox(seq_id)
+          empty_extra_tracks += len(extra_track)
+          extra_tracks += extra_track
 
     print("Confirmed tracks: %d" % len(confirmed_tracks_df.track_id.unique()))
     print("Extra tracks for sequences without bboxes: %d" % empty_extra_tracks)
 
-    extra_tracks_df = self._prepare_extra_tracks(extra_tracks)
-
-    return pd.concat([confirmed_tracks_df, extra_tracks_df], ignore_index=True)
+    if len(extra_tracks) > 0:
+      extra_tracks_df = self._prepare_extra_tracks(extra_tracks)
+      return pd.concat([confirmed_tracks_df, extra_tracks_df],
+                       ignore_index=True)
+    else:
+      return confirmed_tracks_df
