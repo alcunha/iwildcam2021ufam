@@ -88,9 +88,28 @@ class TrackGuesser:
       extra_track.append(bbox_info)
     return extra_track
 
+  def _create_single_track_from_bboxes(self, seq_id):
+    extra_track = []
+    images = self.dataset_info[self.dataset_info.seq_id == seq_id]
+    for _, row in images.iterrows():
+      dets = row['detections']
+      if len(dets) > 0 and dets[0]['conf'] > self.megadetector_threshold:
+        bbox = dets[0]['bbox']
+        bbox_info = {
+          'seq_id': seq_id,
+          'img_id': row['id'],
+          'track_id': seq_id + 'a',
+          'bbox_tlwh': [bbox[0]*row['width'], bbox[1]*row['height'],
+                        bbox[2]*row['width'], bbox[3]*row['height']]
+        }
+        extra_track.append(bbox_info)
+
+    return extra_track
+
   def guess_tracks(self, confirmed_tracks_df):
     extra_tracks = []
     empty_extra_tracks = 0
+    non_confirmed_tracks = 0
 
     for seq_id in list(self.dataset_info.seq_id.unique()):
       max_bbox = self._max_bbox_per_seq(seq_id)
@@ -100,11 +119,16 @@ class TrackGuesser:
       if max_bbox == 0:
         if self.track_nobbox:
           extra_track = self._create_track_nobbox(seq_id)
-          empty_extra_tracks += len(extra_track)
+          empty_extra_tracks += 1
           extra_tracks += extra_track
+      elif max_bbox == 1 and num_confirmed_tracks == 0:
+        extra_track = self._create_single_track_from_bboxes(seq_id)
+        non_confirmed_tracks += 1
+        extra_tracks += extra_track
 
     print("Confirmed tracks: %d" % len(confirmed_tracks_df.track_id.unique()))
     print("Extra tracks for sequences without bboxes: %d" % empty_extra_tracks)
+    print("Extra tracks for sequences with bboxes: %d" % non_confirmed_tracks)
 
     if len(extra_tracks) > 0:
       extra_tracks_df = self._prepare_extra_tracks(extra_tracks)
