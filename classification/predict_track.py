@@ -21,7 +21,7 @@ from absl import flags
 import numpy as np
 import tensorflow as tf
 
-from iwildcamlib import CategoryMap
+from iwildcamlib import CategoryMap, generate_submission_by_tracks
 import bags
 import dataloader
 import model_builder
@@ -166,7 +166,7 @@ def predict_classifier(model, dataset):
   return seq_ids, track_ids, predictions
 
 def format_instance_id(instance_ids):
-  instance_ids = [filename.decode("utf-8")[:-4] for filename in instance_ids]
+  instance_ids = [instanceid.decode("utf-8") for instanceid in instance_ids]
 
   return instance_ids
 
@@ -197,12 +197,12 @@ def main(_):
 
   seq_ids, track_ids, predictions = predict_classifier(model, dataset)
 
-  # instance_ids = format_instance_id(instance_ids)  
-  # predictions = decode_predictions(predictions, category_map)
+  seq_ids = format_instance_id(seq_ids)
+  track_ids = format_instance_id(track_ids)
+  predictions = decode_predictions(predictions, category_map)
 
-  # generate_submission(instance_ids, predictions, category_map,
-  #                     FLAGS.test_info_json, FLAGS.megadetector_results_json,
-  #                     FLAGS.submission_file_path)
+  generate_submission_by_tracks(seq_ids, track_ids, predictions, category_map,
+                      FLAGS.test_info_json, FLAGS.submission_file_path)
 
 if __name__ == '__main__':
   app.run(main)

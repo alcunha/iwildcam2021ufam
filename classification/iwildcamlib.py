@@ -151,3 +151,22 @@ def generate_submission(instance_ids, predictions, category_map,
   seq_preds = _predict_by_seq(predictions)
   df = _generate_df_submission(seq_preds, seq_counts, category_map)
   df.to_csv(csv_file, index=False, header=True, sep=',')
+
+def _get_all_seq_ids(test_info_json):
+  with tf.io.gfile.GFile(test_info_json, 'r') as json_file:
+    json_data = json.load(json_file)
+  test_set = pd.DataFrame(json_data['images'])
+
+  return list(test_set.seq_id.unique())
+
+def generate_submission_by_tracks(seq_ids, track_ids, predictions,
+                                  category_map, test_info_json, csv_file):
+  all_seq_ids = _get_all_seq_ids(test_info_json)
+  categories = category_map.get_category_list()
+  submission = _generate_zero_submission(all_seq_ids, categories)
+
+  for seq, _, pred in zip(seq_ids, track_ids, predictions):
+    if pred > 0:
+      column = 'Predicted' + str(pred)
+      submission.loc[submission.Id == seq, column] += 1
+  submission.to_csv(csv_file, index=False, header=True, sep=',')
