@@ -304,15 +304,19 @@ class TrackInputProcessor:
                dataset_json,
                dataset_dir,
                tracks_json,
+               batch_size,
                num_images=8,
                output_size=224,
-               resize_with_pad=False,):
+               resize_with_pad=False,
+               batch_drop_remainder=True):
     self.dataset_json = dataset_json
     self.dataset_dir = dataset_dir
     self.tracks_json = tracks_json
+    self.batch_size = batch_size
     self.num_images = num_images
     self.output_size = output_size
     self.resize_with_pad = resize_with_pad
+    self.batch_drop_remainder = batch_drop_remainder
 
   def _load_metadata(self):
     with tf.io.gfile.GFile(self.dataset_json, 'r') as json_file:
@@ -434,6 +438,9 @@ class TrackInputProcessor:
 
       return tuple(images), (seq_id, track_id)
     dataset = dataset.map(_preprocess_track, num_parallel_calls=AUTOTUNE)
+    dataset = dataset.batch(self.batch_size,
+                            drop_remainder=self.batch_drop_remainder)
+    dataset = dataset.prefetch(buffer_size=AUTOTUNE)
 
     return dataset
 
