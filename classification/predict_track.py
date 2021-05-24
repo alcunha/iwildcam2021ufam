@@ -25,6 +25,7 @@ from iwildcamlib import CategoryMap, generate_submission_by_tracks
 import bags
 import dataloader
 import model_builder
+import tracks_guesser
 
 os.environ['TF_DETERMINISTIC_OPS'] = '1'
 
@@ -85,6 +86,10 @@ flags.DEFINE_string(
     'tracks_file', default=None,
     help=('Path to file contained confirmed tracks info.'))
 
+flags.DEFINE_bool(
+    'use_track_guesser', default=False,
+    help=('Use a track guesser to add pseudo tracks not confirmed by deepsort'))
+
 flags.DEFINE_string(
     'submission_file_path', default=None,
     help=('File name to save predictions on iWildCam2020 results format.'))
@@ -136,10 +141,16 @@ def _load_model(num_classes, bal_group_softmax=None):
   return model
 
 def _build_input_data():
+  track_guesser = tracks_guesser.TrackGuesser(
+    dataset_json=FLAGS.test_info_json,
+    megadetector_results_json=FLAGS.megadetector_results_json) \
+    if FLAGS.use_track_guesser else None
+
   input_data = dataloader.TrackInputProcessor(
     dataset_json=FLAGS.test_info_json,
     dataset_dir=FLAGS.dataset_dir,
     tracks_json=FLAGS.tracks_file,
+    tracks_guesser=track_guesser,
     batch_size=FLAGS.batch_size,
     num_images=FLAGS.num_images_by_track,
     batch_drop_remainder=False)

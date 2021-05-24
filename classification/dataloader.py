@@ -305,6 +305,7 @@ class TrackInputProcessor:
                dataset_dir,
                tracks_json,
                batch_size,
+               tracks_guesser=None,
                num_images=8,
                output_size=224,
                resize_with_pad=False,
@@ -312,6 +313,7 @@ class TrackInputProcessor:
     self.dataset_json = dataset_json
     self.dataset_dir = dataset_dir
     self.tracks_json = tracks_json
+    self.tracks_guesser = tracks_guesser
     self.batch_size = batch_size
     self.num_images = num_images
     self.output_size = output_size
@@ -384,6 +386,9 @@ class TrackInputProcessor:
 
   def make_source_dataset(self):
     metadata = self._load_metadata()
+    if self.tracks_guesser is not None:
+      metadata = self.tracks_guesser.guess_tracks(metadata)
+
     dataset = tf.data.Dataset.from_tensor_slices(
         self._process_tracks(metadata))
 
