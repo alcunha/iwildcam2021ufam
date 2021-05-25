@@ -55,6 +55,7 @@ class JsonWBBoxInputProcessor:
               category_map,
               bal_group_softmax=None,
               crop_mode='bbox',
+              conf_threshold=0.6,
               selected_locations=None,
               default_empty_label=0,
               is_training=False,
@@ -76,6 +77,7 @@ class JsonWBBoxInputProcessor:
     self.category_map = category_map
     self.bal_group_softmax = bal_group_softmax
     self.crop_mode = crop_mode
+    self.conf_threshold = conf_threshold
     self.selected_locations = selected_locations
     self.is_training = is_training
     self.output_size = output_size
@@ -115,6 +117,28 @@ class JsonWBBoxInputProcessor:
 
     return metadata_df
 
+  def _explode_bboxes(self, metadata_df):
+    detections = metadata_df['detections'].apply(pd.Series).reset_index()
+    detections = detections.melt(id_vars='index').dropna()[['index', 'value']]
+    detections = detections.set_index('index')
+    detections = detections[detections.apply(
+                      lambda row: row['value']['conf'] >= self.conf_threshold,
+                      axis=1)].copy()
+
+    df_expanded = pd.merge(detections,
+                    metadata_df.loc[:, metadata_df.columns != 'detections'],
+                    left_index=True,
+                    right_index=True,
+                    how='outer')
+    df_expanded = df_expanded.rename(columns={'value': 'detections'})
+    df_expanded = df_expanded.reset_index()
+    for row in df_expanded.loc[~df_expanded.detections.isna()].index:
+      df_expanded.at[row, 'detections'] = [df_expanded.at[row, 'detections']]
+    for row in df_expanded.loc[df_expanded.detections.isna()].index:
+      df_expanded.at[row, 'detections'] = []
+
+    return df_expanded.copy()
+
   def _load_metadata(self):
     with tf.io.gfile.GFile(self.dataset_json, 'r') as json_file:
       json_data = json.load(json_file)
@@ -144,7 +168,10 @@ class JsonWBBoxInputProcessor:
   def _prepare_bboxes(self, metadata):
     def _get_first_bbox(row):
       bbox = row['detections']
-      bbox = bbox[0]['bbox'] if len(bbox) > 0 else [0.0, 0.0, 1.0, 1.0]
+      if len(bbox) > 0 and bbox[0]['conf'] > self.conf_threshold:
+        bbox = bbox[0]['bbox']
+      else:
+        bbox = [0.0, 0.0, 1.0, 1.0]
       return bbox
 
     metadata['detections'] = metadata['detections'].apply(
@@ -161,6 +188,9 @@ class JsonWBBoxInputProcessor:
     if self.selected_locations is not None:
       metadata = metadata[metadata.location.isin(self.selected_locations)]
       metadata = metadata.copy()
+
+    if self.is_training and self.crop_mode == 'bbox':
+      metadata = self._explode_bboxes(metadata)
 
     bboxes = self._prepare_bboxes(metadata)
 
