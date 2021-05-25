@@ -27,6 +27,7 @@ from absl import flags
 import numpy as np
 import tensorflow as tf
 
+from reid_extractor import ReID_Inference
 import dataloader
 import model_builder
 
@@ -46,6 +47,14 @@ flags.DEFINE_string(
     'base_model_weights', default='imagenet',
     help=('Path to h5 weights file to be loaded into the base model during'
           ' model build procedure.'))
+
+flags.DEFINE_bool(
+    'use_classifier_features', default=True,
+    help=('Use features from classifier model'))
+
+flags.DEFINE_list(
+    'reid_models', default=None,
+    help=('List of omnix reid models to generate features'))
 
 flags.DEFINE_string(
     'test_info_json', default=None,
@@ -101,18 +110,47 @@ def _load_model():
                               input_size=FLAGS.input_size,
                               base_model_weights=FLAGS.base_model_weights)
 
-def generate_features(model, dataset):
+def _load_reid_models():
+  if FLAGS.reid_models is not None:
+    models = [ReID_Inference(model_file) for model_file in FLAGS.reid_models]
+  else:
+    models = []
+
+  return models
+
+def _reid_preprocess(batch):
+  mean = np.asarray([123.675,116.280,103.530])
+  std = np.asarray([57.0,57.0,57.0])
+  images = []
+  for bb_img in batch.numpy():
+    bb_img = bb_img[:, :, ::-1]
+    bb_img = (bb_img-mean)/std
+    bb_img = np.transpose(bb_img, (2, 0, 1)).astype(np.float32)
+    images.append(bb_img)
+
+  return np.asarray(images)
+
+def generate_features(model, reid_models, dataset):
   features_list = []
   count = 0
 
   for batch, metadata in dataset:
-    features = model(batch, training=False)
+    features = []
+    if FLAGS.use_classifier_features:
+      feats = model(batch, training=False)
+      features += feats.numpy()[0].tolist()
+
+    reid_batch = _reid_preprocess(batch)
+    for reid_model in reid_models:
+      feats = reid_model(reid_batch)
+      features += feats[0].tolist()
+
     bbox_info = {
       'img_id': metadata[0].numpy()[0].decode("utf-8"),
       'category': metadata[1].numpy()[0].decode("utf-8"),
       'bbox_tlwh': metadata[2].numpy()[0].tolist(),
       'conf': metadata[3].numpy()[0],
-      'features': features.numpy()[0].tolist()
+      'features': features
     }
     features_list.append(bbox_info)
 
@@ -130,10 +168,16 @@ def set_random_seeds():
 def main(_):
   set_random_seeds()
 
+  if FLAGS.reid_models is None and not FLAGS.use_classifier_features:
+    raise RuntimeError('You must use at least one reid model or a classifier'
+                       ' to generate feature. Use --reid_models or'
+                       ' --use_classifier_features')
+
   dataset = _build_input_data()
   model = _load_model()
+  reid_models = _load_reid_models()
 
-  features = generate_features(model, dataset)
+  features = generate_features(model, reid_models, dataset)
   with open(FLAGS.features_file, 'w') as fp:
     json.dump(features, fp)
 
