@@ -138,8 +138,7 @@ def _generate_df_submission(seq_preds, seq_counts, category_map):
     pred = seq_preds[seq_id]
     if pred > 0:
       column = 'Predicted' + str(pred)
-      submission.loc[submission.Id == seq_id, column] = max(1,
-                                                            seq_counts[seq_id])
+      submission.loc[submission.Id == seq_id, column] = seq_counts[seq_id]
 
   return submission
 
