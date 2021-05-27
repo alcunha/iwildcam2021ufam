@@ -42,6 +42,10 @@ flags.DEFINE_bool(
     'use_bags', default=False,
     help=('Use Balanced Group Softmax to train model'))
 
+flags.DEFINE_bool(
+    'use_flip_image', default=False,
+    help=('Add flipped images to predictions'))
+
 flags.DEFINE_integer(
     'empty_class_id', default=0,
     help=('Empty class id for balanced group softmax'))
@@ -139,16 +143,34 @@ def _load_model(num_classes, bal_group_softmax=None):
   if bal_group_softmax is not None:
     model_full = bal_group_softmax.create_prediction_model(model_full)
 
+  bbox_weight = FLAGS.bbox_model_weight
+  full_weight = 1 - FLAGS.bbox_model_weight
+  if FLAGS.use_flip_image:
+    bbox_weight /= 2.0
+    full_weight /= 2.0
+
   image_bbox = tf.keras.Input(shape=(FLAGS.input_size, FLAGS.input_size, 3))
   x1 = model_bbox(image_bbox, training=False)
-  x1 = tf.keras.layers.Lambda(lambda x: x * FLAGS.bbox_model_weight)(x1)
+  x1 = tf.keras.layers.Lambda(lambda x: x * bbox_weight)(x1)
 
   image_full = tf.keras.Input(shape=(FLAGS.input_size, FLAGS.input_size, 3))
   x2 = model_full(image_full, training=False)
-  x2 = tf.keras.layers.Lambda(lambda x: x * (1 - FLAGS.bbox_model_weight))(x2)
+  x2 = tf.keras.layers.Lambda(lambda x: x * full_weight)(x2)
 
-  inputs = [image_bbox, image_full]
-  outputs = tf.keras.layers.Add()([x1, x2])
+  if FLAGS.use_flip_image:
+    image_bboxf = tf.keras.Input(shape=(FLAGS.input_size, FLAGS.input_size, 3))
+    x1f = model_bbox(image_bboxf, training=False)
+    x1f = tf.keras.layers.Lambda(lambda x: x * bbox_weight)(x1f)
+
+    image_fullf = tf.keras.Input(shape=(FLAGS.input_size, FLAGS.input_size, 3))
+    x2f = model_full(image_fullf, training=False)
+    x2f = tf.keras.layers.Lambda(lambda x: x * full_weight)(x2f)
+
+    inputs = [image_bbox, image_bboxf, image_full, image_fullf]
+    outputs = tf.keras.layers.Add()([x1, x1f, x2, x2f])
+  else:
+    inputs = [image_bbox, image_full]
+    outputs = tf.keras.layers.Add()([x1, x2])
   model = tf.keras.models.Model(inputs=inputs, outputs=[outputs])
 
   return model
@@ -163,7 +185,7 @@ def _build_input_data(category_map):
     category_map=category_map,
     is_training=False,
     output_size=FLAGS.input_size,
-    crop_mode='both',
+    crop_mode='both_flip' if FLAGS.use_flip_image else 'both',
     provide_instance_id=True,
     seed=FLAGS.random_seed)
 

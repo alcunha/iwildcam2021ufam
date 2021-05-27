@@ -270,7 +270,7 @@ class JsonWBBoxInputProcessor:
                                     randaug_magnitude=self.randaug_magnitude)
         inputs = (image, coord_date) if self.provide_coord_date_encoded_input \
                                      else image
-      elif self.crop_mode == 'both':
+      elif self.crop_mode == 'both' or self.crop_mode == 'both_flip':
         image1 = preprocessing.preprocess_image(image,
                                     output_size=self.output_size,
                                     bboxes=bbox,
@@ -287,8 +287,18 @@ class JsonWBBoxInputProcessor:
                                     resize_with_pad=self.resize_with_pad,
                                     randaug_num_layers=self.randaug_num_layers,
                                     randaug_magnitude=self.randaug_magnitude)
-        inputs = (image1, image2, coord_date) \
-          if self.provide_coord_date_encoded_input else (image1, image2)
+        if self.crop_mode == 'both_flip':
+          image1_flip = tf.image.flip_left_right(image1)
+          image2_flip = tf.image.flip_left_right(image2)
+          if self.provide_coord_date_encoded_input:
+            inputs = (image1, image1_flip, image2, image2_flip, coord_date)
+          else:
+            inputs = (image1, image1_flip, image2, image2_flip)
+        else:
+          if self.provide_coord_date_encoded_input:
+            inputs = (image1, image2, coord_date)
+          else:
+            inputs = (image1, image2)
       else:
         raise ValueError('Invalid crop_mode, used %s.' % self.crop_mode)
 
