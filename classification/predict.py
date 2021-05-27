@@ -162,12 +162,6 @@ def format_instance_id(instance_ids):
 
   return instance_ids
 
-def decode_predictions(predictions, category_map):
-  preds = [category_map.index_to_category(pred.argmax())
-           for pred in predictions]
-
-  return preds
-
 def set_random_seeds():
   random.seed(FLAGS.random_seed)
   np.random.seed(FLAGS.random_seed)
@@ -189,7 +183,6 @@ def main(_):
 
   instance_ids, predictions = predict_classifier(model, dataset)
   instance_ids = format_instance_id(instance_ids)  
-  predictions = decode_predictions(predictions, category_map)
 
   generate_submission(instance_ids, predictions, category_map,
                       FLAGS.test_info_json, FLAGS.megadetector_results_json,

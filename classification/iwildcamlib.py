@@ -16,6 +16,7 @@ import json
 
 from absl import flags
 
+import numpy as np
 import pandas as pd
 import tensorflow as tf
 
@@ -24,6 +25,10 @@ FLAGS = flags.FLAGS
 flags.DEFINE_float(
     'megadetector_threshold', default=0.9,
     help=('Threshold to use megadetector bounding box on individual counts'))
+
+flags.DEFINE_enum(
+    'ensemble_method', default='averaging', enum_values=['voting', 'averaging'],
+    help=('Ensemble method to merge predictions along sequence images'))
 
 class CategoryMap:
   def __init__(self, dataset_json):
@@ -62,16 +67,23 @@ class CategoryMap:
   def get_num_classes(self):
     return self.num_classes
 
-def _load_seq_info(instance_ids, predictions, test_info_json):
+def _decode_predictions(predictions, category_map):
+  preds = [category_map.index_to_category(pred.argmax())
+           for pred in predictions]
+
+  return preds
+
+def _load_seq_info(instance_ids, predictions, test_info_json, category_map):
   with tf.io.gfile.GFile(test_info_json, 'r') as json_file:
     json_data = json.load(json_file)
   test_set = pd.DataFrame(json_data['images'])
-  preds = pd.DataFrame(list(zip(instance_ids, predictions)),
-                       columns=['id', 'Category'])
+  preds_decoded = _decode_predictions(predictions, category_map)
+  preds = pd.DataFrame(list(zip(instance_ids, predictions, preds_decoded)),
+                       columns=['id', 'Predictions', 'Category'])
   preds = pd.merge(test_set, preds, how='left', on='id')
   preds['Category'] = preds['Category'].fillna(0)
   preds['Category'] = preds['Category'].astype(int)
-  preds = preds[['id', 'seq_id', 'Category']].copy()
+  preds = preds[['id', 'seq_id', 'Predictions', 'Category']].copy()
 
   return preds
 
@@ -103,23 +115,35 @@ def _load_megadetector_counts(test_info_json, megadetector_results_json):
 
   return seq_counts
 
+def _get_average_prediction(seq_preds, category_map):
+  preds = list(seq_preds.Predictions.values)
+  pred_avrg = np.mean(preds, axis=0)
+
+  return category_map.index_to_category(pred_avrg.argmax())
+
 def _get_majority_vote_prediction(seq_preds):
   preds = list(seq_preds.Category.values)
   return max(set(preds), key=preds.count)
 
-def _get_seq_pred(predictions, seq_id, ignore_empty_images=True):
+def _get_seq_pred(predictions, seq_id, category_map, ignore_empty_images=True):
   seq_preds = predictions[predictions.seq_id == seq_id]
 
   if ignore_empty_images:
     seq_preds = seq_preds[~(seq_preds.Category == 0)]
 
   if len(seq_preds) > 0:
-    return _get_majority_vote_prediction(seq_preds)
+    if FLAGS.ensemble_method == 'voting':
+      return _get_majority_vote_prediction(seq_preds)
+    elif FLAGS.ensemble_method == 'averaging':
+      return _get_average_prediction(seq_preds, category_map)
+    else:
+      raise RuntimeError('%s ensemble method not implemented' %
+                          FLAGS.ensemble_method)
 
   return 0
 
-def _predict_by_seq(predictios):
-  seq_preds = {seq_id: _get_seq_pred(predictios, seq_id)
+def _predict_by_seq(predictios, category_map):
+  seq_preds = {seq_id: _get_seq_pred(predictios, seq_id, category_map)
                for seq_id in predictios.seq_id.unique()}
   return seq_preds
 
@@ -144,10 +168,13 @@ def _generate_df_submission(seq_preds, seq_counts, category_map):
 
 def generate_submission(instance_ids, predictions, category_map,
                         test_info_json, megadetector_results_json, csv_file):
-  predictions = _load_seq_info(instance_ids, predictions, test_info_json)
+  predictions = _load_seq_info(instance_ids,
+                               predictions,
+                               test_info_json,
+                               category_map)
   seq_counts = _load_megadetector_counts(test_info_json,
                                          megadetector_results_json)
-  seq_preds = _predict_by_seq(predictions)
+  seq_preds = _predict_by_seq(predictions, category_map)
   df = _generate_df_submission(seq_preds, seq_counts, category_map)
   df.to_csv(csv_file, index=False, header=True, sep=',')
 
