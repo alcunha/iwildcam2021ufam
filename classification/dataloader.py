@@ -339,6 +339,124 @@ class JsonWBBoxInputProcessor:
 
     return dataset, self.num_instances
 
+class BBoxInputProcessor:
+  def __init__(self,
+              dataset_json,
+              dataset_dir,
+              megadetector_results_json,
+              batch_size,
+              conf_threshold=0.9,
+              output_size=224,
+              resize_with_pad=False,
+              provide_instance_id=False,
+              batch_drop_remainder=True,
+              seed=None):
+    self.dataset_json = dataset_json
+    self.dataset_dir = dataset_dir
+    self.megadetector_results_json = megadetector_results_json
+    self.batch_size = batch_size
+    self.conf_threshold = conf_threshold
+    self.output_size = output_size
+    self.resize_with_pad = resize_with_pad
+    self.provide_instance_id = provide_instance_id
+    self.batch_drop_remainder = batch_drop_remainder
+    self.seed = seed
+    self.num_instances = 0
+
+  def _explode_bboxes(self, metadata_df):
+    detections = metadata_df['detections'].apply(pd.Series).reset_index()
+    detections = detections.melt(id_vars='index').dropna()[['index', 'value']]
+    detections = detections.set_index('index')
+    detections = detections[detections.apply(
+                      lambda row: row['value']['conf'] >= self.conf_threshold,
+                      axis=1)].copy()
+
+    df_expanded = pd.merge(detections,
+                    metadata_df.loc[:, metadata_df.columns != 'detections'],
+                    left_index=True,
+                    right_index=True,
+                    how='left')
+    df_expanded = df_expanded.rename(columns={'value': 'detections'})
+    df_expanded = df_expanded.reset_index()
+    for row in df_expanded.loc[~df_expanded.detections.isna()].index:
+      df_expanded.at[row, 'detections'] = [df_expanded.at[row, 'detections']]
+
+    return df_expanded.copy()
+
+  def _load_metadata(self):
+    with tf.io.gfile.GFile(self.dataset_json, 'r') as json_file:
+      json_data = json.load(json_file)
+    images = pd.DataFrame(json_data['images'])
+
+    with tf.io.gfile.GFile(self.megadetector_results_json, 'r') as json_file:
+      json_data = json.load(json_file)
+    megadetector_preds = pd.DataFrame(json_data['images'])
+    images = pd.merge(images,
+                      megadetector_preds,
+                      how='left',
+                      on='id')
+
+    return images
+
+  def _prepare_bboxes(self, metadata):
+    def _get_first_bbox(row):
+      return row['detections'][0]['bbox']
+
+    metadata['bbox'] = metadata.apply(_get_first_bbox, axis=1)
+    bboxes = pd.DataFrame(metadata.bbox.tolist(),
+                    columns=['bbox_x', 'bbox_y', 'bbox_width', 'bbox_height'])
+
+    return bboxes.to_dict('list')
+
+  def make_source_dataset(self):
+    metadata = self._load_metadata()
+    metadata = self._explode_bboxes(metadata)
+    bboxes = self._prepare_bboxes(metadata)
+
+    self.num_instances = len(metadata.file_name)
+
+    dataset = tf.data.Dataset.from_tensor_slices((
+      metadata.file_name,
+      metadata.id,
+      bboxes,
+    ))
+
+    def _decode_bboxes(bboxes):
+      xmin = bboxes['bbox_x']
+      ymin = bboxes['bbox_y']
+      xmax = xmin + bboxes['bbox_width']
+      ymax = ymin + bboxes['bbox_height']
+
+      bbox = tf.stack([xmin, ymin, xmax, ymax], axis=0)
+      bbox = tf.reshape(bbox, shape=[1, 1, 4])
+
+      return bbox
+
+    def _load_and_preprocess_image(filename, instance_id, bboxes):
+      bbox = _decode_bboxes(bboxes)
+      image = tf.io.read_file(self.dataset_dir + filename)
+      image = tf.io.decode_jpeg(image, channels=3)
+
+      image = preprocessing.preprocess_image(image,
+                                  output_size=self.output_size,
+                                  bboxes=bbox,
+                                  use_square_crop=True,
+                                  is_training=False,
+                                  resize_with_pad=self.resize_with_pad)
+
+      if self.provide_instance_id:
+        return image, instance_id
+
+      return image
+
+    dataset = dataset.map(_load_and_preprocess_image,
+                          num_parallel_calls=AUTOTUNE)
+    dataset = dataset.batch(self.batch_size,
+                            drop_remainder=self.batch_drop_remainder)
+    dataset = dataset.prefetch(buffer_size=AUTOTUNE)
+
+    return dataset
+
 class TrackInputProcessor:
   def __init__(self,
                dataset_json,

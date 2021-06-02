@@ -19,9 +19,10 @@ import random
 from absl import app
 from absl import flags
 import numpy as np
+import pandas as pd
 import tensorflow as tf
 
-from iwildcamlib import CategoryMap, generate_submission
+from iwildcamlib import CategoryMap
 import bags
 import dataloader
 import model_builder
@@ -45,10 +46,6 @@ flags.DEFINE_bool(
 flags.DEFINE_integer(
     'empty_class_id', default=0,
     help=('Empty class id for balanced group softmax'))
-
-flags.DEFINE_bool(
-    'use_full_image', default=False,
-    help=('Ignore bounding boxes and use full image'))
 
 flags.DEFINE_integer(
     'batch_size', default=32,
@@ -81,9 +78,13 @@ flags.DEFINE_string(
     'megadetector_results_json', default=None,
     help=('Path to json file containing megadetector results.'))
 
+flags.DEFINE_float(
+    'min_conf_threshold', default=0.9,
+    help=('Minimun confidence threshold for bounding box counting.'))
+
 flags.DEFINE_string(
-    'submission_file_path', default=None,
-    help=('File name to save predictions on iWildCam2020 results format.'))
+    'counts_file_path', default=None,
+    help=('File name to save animal counts per sequence'))
 
 flags.DEFINE_integer(
     'log_frequence', default=500,
@@ -99,7 +100,7 @@ flags.mark_flag_as_required('annotations_json')
 flags.mark_flag_as_required('test_info_json')
 flags.mark_flag_as_required('dataset_dir')
 flags.mark_flag_as_required('megadetector_results_json')
-flags.mark_flag_as_required('submission_file_path')
+flags.mark_flag_as_required('counts_file_path')
 
 def load_train_validation_split():
   if FLAGS.train_dataset_split is None:
@@ -124,17 +125,15 @@ def _load_model(num_classes, bal_group_softmax=None):
 
   return model
 
-def _build_input_data(category_map):
-  input_data =  dataloader.JsonWBBoxInputProcessor(
+def _build_input_data():
+  input_data =  dataloader.BBoxInputProcessor(
     dataset_json=FLAGS.test_info_json,
     dataset_dir=FLAGS.dataset_dir,
     megadetector_results_json=FLAGS.megadetector_results_json,
+    conf_threshold=FLAGS.min_conf_threshold,
     batch_size=FLAGS.batch_size,
     batch_drop_remainder=False,
-    category_map=category_map,
-    is_training=False,
     output_size=FLAGS.input_size,
-    crop_mode='full' if FLAGS.use_full_image else 'bbox',
     provide_instance_id=True,
     seed=FLAGS.random_seed)
 
@@ -145,9 +144,8 @@ def predict_classifier(model, dataset):
   predictions = []
   count = 0
 
-  for batch, metadata in dataset:
+  for batch, instanceid in dataset:
     pred = model(batch, training=False)
-    _, instanceid = metadata
     instance_ids += list(instanceid.numpy())
     predictions += list(pred.numpy())
 
@@ -157,8 +155,32 @@ def predict_classifier(model, dataset):
 
   return instance_ids, predictions
 
+def count_images_per_seq(instances_ids, predictions):
+  img_counts = {}
+  for instid, pred in zip(instances_ids, predictions):
+    # the first prediction is the empty class and the direct result of the first
+    # softmax fg/bg from bags. pred[0] < 0.5 means that bags detects an animal
+    if pred[0] < 0.5:
+      if instid in img_counts:
+        img_counts[instid] += 1
+      else:
+        img_counts[instid] = 1
+
+  with tf.io.gfile.GFile(FLAGS.test_info_json, 'r') as json_file:
+    json_data = json.load(json_file)
+  test_set = pd.DataFrame(json_data['images'])
+
+  seq_counts = {}
+  for seq_id in test_set.seq_id.unique():
+    seq_counts[seq_id] = 0
+    for img_id in test_set[test_set.seq_id == seq_id].id.unique():
+      if img_id in img_counts and img_counts[img_id] > seq_counts[seq_id]:
+        seq_counts[seq_id] = img_counts[img_id]
+
+  return seq_counts
+
 def format_instance_id(instance_ids):
-  instance_ids = [filename.decode("utf-8")[:-4] for filename in instance_ids]
+  instance_ids = [inst_id.decode("utf-8") for inst_id in instance_ids]
 
   return instance_ids
 
@@ -178,15 +200,15 @@ def main(_):
         FLAGS.empty_class_id,
         selected_locations=train_loc) if FLAGS.use_bags else None
 
-  dataset, _ = _build_input_data(category_map)
+  dataset = _build_input_data()
   model = _load_model(category_map.get_num_classes(), bal_group_softmax)
 
   instance_ids, predictions = predict_classifier(model, dataset)
   instance_ids = format_instance_id(instance_ids)
+  seq_counts = count_images_per_seq(instance_ids, predictions)
 
-  generate_submission(instance_ids, predictions, category_map,
-                      FLAGS.test_info_json, FLAGS.megadetector_results_json,
-                      FLAGS.submission_file_path)
+  with tf.io.gfile.GFile(FLAGS.counts_file_path, 'w') as json_file:
+    json.dump(seq_counts, json_file)
 
 if __name__ == '__main__':
   app.run(main)

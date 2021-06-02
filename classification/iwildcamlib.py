@@ -30,6 +30,11 @@ flags.DEFINE_enum(
     'ensemble_method', default='averaging', enum_values=['voting', 'averaging'],
     help=('Ensemble method to merge predictions along sequence images'))
 
+flags.DEFINE_string(
+    'seq_counts_json', default=None,
+    help='Json containing animal counting for sequences. If not defined, it '
+         ' will be infered from bbox counts from test data.')
+
 class CategoryMap:
   def __init__(self, dataset_json):
     with open(dataset_json) as json_file:
@@ -172,8 +177,12 @@ def generate_submission(instance_ids, predictions, category_map,
                                predictions,
                                test_info_json,
                                category_map)
-  seq_counts = _load_megadetector_counts(test_info_json,
-                                         megadetector_results_json)
+  if FLAGS.seq_counts_json is not None:
+    with tf.io.gfile.GFile(FLAGS.seq_counts_json, 'r') as json_file:
+      seq_counts = json.load(json_file)
+  else:
+    seq_counts = _load_megadetector_counts(test_info_json,
+                                          megadetector_results_json)
   seq_preds = _predict_by_seq(predictions, category_map)
   df = _generate_df_submission(seq_preds, seq_counts, category_map)
   df.to_csv(csv_file, index=False, header=True, sep=',')
