@@ -71,7 +71,7 @@ The prediction for each image is a weighted average of the predictions for the b
 
 #### Final submission
 
-Both bbox and full image models of our final submission are based on EfficientNet-B2 using Balanced Group Softmax to handle the class imbalance in the dataset (see `configs` folder). The bbox model was trained using all bounding boxes with confidence > 0.6. We run MegaDetector V4 to generate bounding boxes. The trained models used to generate predictions can be found [here]() and the MegaDetector V4 bboxes for iWildCam 2021 are available [here]().
+Both bbox and full image models of our final submission are based on EfficientNet-B2 using Balanced Group Softmax to handle the class imbalance in the dataset (see `classification/configs` folder). The bbox model was trained using all bounding boxes with confidence > 0.6. We run MegaDetector V4 to generate bounding boxes. The trained models used to generate predictions can be found [here](https://drive.google.com/drive/folders/1jM_U0tyvYr0aRsZI_g3aUwYNAKPqqWl1?usp=sharing) and the MegaDetector V4 bboxes for iWildCam 2021 are available [here](https://drive.google.com/drive/folders/19LNFfvEVmOf1NDsT0jn4v47socpFbXek?usp=sharing).
 
 Use the script `classification/predict_bbox_n_full.py` to generate a submission:
 ```bash
