@@ -15,6 +15,48 @@ Please refer to the [iWildCam 2021 Github page](https://github.com/visipedia/iwi
 
 ### Training
 
+To train a classifier, use the script `classification/train.py`. Since we use multiple training stages, the script `classification/multi_stage_train.py` can be used to automate that:
+```bash
+python multi_stage_train.py --annotations_json=PATH_TO_BE_CONFIGURED/iwildcam2021_train_annotations.json \
+    --megadetector_results_json=PATH_TO_BE_CONFIGURED/iwildcam2021train_originalimage_megadetector_v4.1_results_parsed.json \
+    --dataset_dir=PATH_TO_BE_CONFIGURED/ \
+    --model_name=efficientnet-b2 \
+    --input_size=260 \
+    --input_size_stage3=380 \
+    --input_scale_mode=uint8 \
+    --batch_size=32 \
+    --lr_stage1=0.01 \
+    --lr_stage2=0.01 \
+    --lr_stage3=0.001 \
+    --momentum=0.9 \
+    --epochs_stage1=4 \
+    --epochs_stage2=20 \
+    --epochs_stage3=2 \
+    --unfreeze_layers=18 \
+    --label_smoothing=0.1 \
+    --randaug_num_layers=6 \
+    --randaug_magnitude=2 \
+    --random_seed=42 \
+    --model_dir=PATH_TO_BE_CONFIGURED/
+```
+
+The parameters can also be passed using a config file:
+```bash
+python multi_stage_train.py --flagfile=configs/efficientnet_b2_multicrop_bags_final_submission_training.config
+```
+
+#### Training using full image
+
+By default, the training script trains models using bounding boxes crops from MegaDetector predictions. To use the full image, please specify --use_full_image.
+
+#### Training using Balanced Group Softmax
+
+To train a model using [Balanced Group Softmax](https://arxiv.org/abs/2006.10408):
+
+1. Train a model, as usual, using `classification/train.py` or `classification/multi_stage_train.py`. By default, they will use the conventional softmax.
+1. Extract the base model weights using `classification/save_base_model.py`.
+1. Train a model by specifying --use_bags and also passsing the pretrained weights using --base_model_weights option. See `classification/configs/efficientnet_b2_multicrop_bags_final_submission_training.config`.
+
 ### Prediction
 
 ### Other things that we tried
