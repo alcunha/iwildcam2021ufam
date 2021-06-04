@@ -65,7 +65,7 @@ To train a model using [Balanced Group Softmax](https://arxiv.org/abs/2006.10408
 
 We tried to use the [Geo Prior model](https://arxiv.org/abs/1906.05272) to improve prediction using GPS coordinates and time of year, but it did not work with the model overfitting the training set. We believe GPS coordinates can be useful for the problem (it worked very well for our [iNat 2021 solution](https://github.com/alcunha/inat2021ufam)), but it's necessary to develop a model to deal with camera trap specificities such as the fixed position.
 
-This repository includes code to predict using a trained geo prior model that can be trained using our [Tensorflow implementation](https://github.com/alcunha/geo_prior_tf/). The model doesn't learn using the original loss, so we had to replace it with the focal loss. But using only the classifier predictions was better than using them combined with geo priors.
+This repository includes code to predict using a trained geo prior model that can be trained using our [Tensorflow implementation](https://github.com/alcunha/geo_prior_tf/). See the script `classification/eval_main.py` for predictions combined with geo priors. The Geo Prior model doesn't learn using the original loss, so we had to replace it with the focal loss. But using only the classifier predictions was better than using them combined with geo priors.
 
 #### DeepSORT to track animals
 
