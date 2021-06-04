@@ -59,6 +59,39 @@ To train a model using [Balanced Group Softmax](https://arxiv.org/abs/2006.10408
 
 ### Prediction
 
+#### Counting heuristic
+
+For our final solution, we followed the competition benchmark counting heuristic: the maximum number of bounding boxes across any image in the sequence. We only count bounding boxes with confidence > 0.8.
+
+This counting strategy limits us to predict only one species per sequence. We see our solution as a strong baseline for counting animals on camera trap sequences, but we do believe that the best solution should be tracking animals across images (Multi-object tracking), classify each track, and count them. We tried DeepSORT to track animals, but it wasn't as good as this heuristics for counting (see the next section).
+
+#### Classification
+
+The prediction for each image is a weighted average of the predictions for the bounding boxes with the highest score and the full image (0.15 full image + 0.15 full image (flip) + 0.35 bbox + 0.35 bbox (flip)) as used by the winning solution of iWildCam 2020. To classify a sequence, we average the predictions of all nonempty images for each sequence.
+
+#### Final submission
+
+Both bbox and full image models of our final submission are based on EfficientNet-B2 using Balanced Group Softmax to handle the class imbalance in the dataset (see `configs` folder). The bbox model was trained using all bounding boxes with confidence > 0.6. We run MegaDetector V4 to generate bounding boxes. The trained models used to generate predictions can be found [here]() and the MegaDetector V4 bboxes for iWildCam 2021 are available [here]().
+
+Use the script `classification/predict_bbox_n_full.py` to generate a submission:
+```bash
+python predict_bbox_n_full.py --annotations_json=PATH_TO_BE_CONFIGURED/iwildcam2021_train_annotations.json \
+    --dataset_dir=PATH_TO_BE_CONFIGURED/ \
+    --megadetector_results_json=PATH_TO_BE_CONFIGURED/iwildcam2021test_originalimage_megadetector_v4.1_results_parsed.json \
+    --test_info_json=PATH_TO_BE_CONFIGURED/iwildcam2021_test_information.json \
+    --submission_file_path=PATH_TO_BE_CONFIGURED/final_submission.csv \
+    --model_name=efficientnet-b2 \
+    --use_bags \
+    --batch_size=16 \
+    --input_size=380 \
+    --input_scale_mode=uint8 \
+    --ckpt_dir_full=PATH_TO_BE_CONFIGURED/fixefficientnet_b2_380x380_iwildcam_fulltrain_mdv4_fullimage_16mai_bags_mltstg/ \
+    --ckpt_dir_bbox=PATH_TO_BE_CONFIGURED/fixefficientnet_b2_380x380_iwildcam_fulltrain_mdv4_multicrop_26mai_bags_mltstg/ \
+    --use_flip_image \
+    --ensemble_method=averaging \
+    --megadetector_threshold=0.8
+```
+
 ### Other things that we tried
 
 #### GPS coordinates
