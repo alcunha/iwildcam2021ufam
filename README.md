@@ -102,6 +102,41 @@ This repository includes code to predict using a trained geo prior model that ca
 
 #### DeepSORT to track animals
 
+We tried to use [DeepSORT](https://arxiv.org/abs/1703.07402) to generate tracks over sequences. Then we classify each track by averaging the predictions of its bounding boxes list. We use the feature embedding from EfficientNet-B2 trained on bounding boxes. We also tried to use features from ReID models trained by the [winner of ECCV TAO 2020 challenge](https://github.com/feiaxyt/Winner_ECCV20_TAO), but they performed slightly worst than using EfficientNet-B2 features.
+
+To extract features using EfficientNet-B2, use the script `mot/generate_features.py`:
+```bash
+python generate_features.py --model_name=efficientnet-b2 \
+    --input_size=380 \
+    --input_scale_mode=uint8 \
+    --base_model_weights=PATH_TO_BE_CONFIGURED/efficientnet_b2_crop_25mai.h5 \
+    --test_info_json=PATH_TO_BE_CONFIGURED/iwildcam2021_test_information.json \
+    --dataset_dir=PATH_TO_BE_CONFIGURED \
+    --megadetector_results_json=PATH_TO_BE_CONFIGURED/iwildcam2021test_originalimage_megadetector_v4.1_results_parsed.json \
+    --min_confidence=0.9 \
+    --random_seed=42 \
+    --features_file=PATH_TO_BE_CONFIGURED/efficientnet_b2_crop_25mai_features.json
+```
+
+To track animals with DeepSORT use the script `track_iwildcam.py` from our [DeepSORT repository](https://github.com/alcunha/deep_sort_iwildcam2021ufam). We kept DeepSORT code on a separate repository to avoid GPLv3 licensing conflicts.
+
+Finally, to classify tracks and generate a submission, use the script `classification/predict_track.py`:
+```bash
+python predict_track.py --annotations_json=PATH_TO_BE_CONFIGURED/iwildcam2021_train_annotations.json \
+    --dataset_dir=PATH_TO_BE_CONFIGURED \
+    --megadetector_results_json=PATH_TO_BE_CONFIGURED/iwildcam2021test_originalimage_megadetector_v4.1_results_parsed.json \
+    --test_info_json=PATH_TO_BE_CONFIGURED/iwildcam2021_test_information.json \
+    --submission_file_path=PATH_TO_BE_CONFIGURED/deepsorttracks.csv \
+    --model_name=efficientnet-b2 \
+    --use_bags \
+    --batch_size=32 \
+    --input_size=380 \
+    --input_scale_mode=uint8 \
+    --ckpt_dir=PATH_TO_BE_CONFIGURED/fixefficientnet_b2_380x380_iwildcam_fulltrain_mdv4_multicrop_26mai_bags_mltstg/ \
+    --tracks_file=PATH_TO_BE_CONFIGURED/efficientnet_b2_crop_25mai_tracks.json \
+    --num_images_by_track=8
+```
+
 ### Contact
 
 If you have any questions, feel free to contact Fagner Cunha (e-mail: fagner.cunha@icomp.ufam.edu.br) or Github issues. 
