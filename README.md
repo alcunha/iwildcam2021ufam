@@ -61,17 +61,17 @@ To train a model using [Balanced Group Softmax](https://arxiv.org/abs/2006.10408
 
 #### Counting heuristic
 
-For our final solution, we followed the competition benchmark counting heuristic: the maximum number of bounding boxes across any image in the sequence. We only count bounding boxes with confidence > 0.8.
+For our final solution, we followed the competition benchmark counting heuristic: the maximum number of bounding boxes across any image in the sequence. We only counted bounding boxes from MegaDetectorV4 with confidence > 0.8.
 
-This counting strategy limits us to predict only one species per sequence. We see our solution as a strong baseline for counting animals on camera trap sequences, but we do believe that the best solution should be tracking animals across images (Multi-object tracking), classify each track, and count them. We tried DeepSORT to track animals, but it wasn't as good as this heuristics for counting (see the next section).
+This counting strategy limits us to predict only one species per sequence. We see our solution as a strong baseline for counting animals on camera trap sequences, but we do believe that the best solution should be based on tracking animals across images (Multi-object tracking), classifying each track, and counting them. We tried DeepSORT to track animals, but it was not as good as this heuristics for counting (see the next section).
 
 #### Classification
 
-The prediction for each image is a weighted average of the predictions for the bounding boxes with the highest score and the full image (0.15 full image + 0.15 full image (flip) + 0.35 bbox + 0.35 bbox (flip)) as used by the winning solution of iWildCam 2020. To classify a sequence, we average the predictions of all nonempty images for each sequence.
+The prediction assigned to each image is a weighted average of the predictions assigned to the bounding box with the highest score and to the full image (0.15 full image + 0.15 full image (flip) + 0.35 bbox + 0.35 bbox (flip)) as used by the winning solution of iWildCam 2020. To classify a sequence, we average the predictions of all nonempty images for each sequence.
 
 #### Final submission
 
-Both bbox and full image models of our final submission are based on EfficientNet-B2 using Balanced Group Softmax to handle the class imbalance in the dataset (see `classification/configs` folder). The bbox model was trained using all bounding boxes with confidence > 0.6. We run MegaDetector V4 to generate bounding boxes. The trained models used to generate predictions can be found [here](https://drive.google.com/drive/folders/1jM_U0tyvYr0aRsZI_g3aUwYNAKPqqWl1?usp=sharing) and the MegaDetector V4 bboxes for iWildCam 2021 are available [here](https://drive.google.com/drive/folders/19LNFfvEVmOf1NDsT0jn4v47socpFbXek?usp=sharing).
+Both bbox and full image models of our final submission are based on EfficientNet-B2 using Balanced Group Softmax to handle the class imbalance problem in the dataset (see `classification/configs` folder). The bbox model was trained using all bounding boxes with confidence > 0.6. We run MegaDetector V4 to generate bounding boxes. The trained models used to generate predictions can be found [here](https://drive.google.com/drive/folders/1jM_U0tyvYr0aRsZI_g3aUwYNAKPqqWl1?usp=sharing) and the MegaDetector V4 bboxes for iWildCam 2021 are available [here](https://drive.google.com/drive/folders/19LNFfvEVmOf1NDsT0jn4v47socpFbXek?usp=sharing).
 
 Use the script `classification/predict_bbox_n_full.py` to generate a submission:
 ```bash
@@ -96,13 +96,13 @@ python predict_bbox_n_full.py --annotations_json=PATH_TO_BE_CONFIGURED/iwildcam2
 
 #### GPS coordinates
 
-We tried to use the [Geo Prior model](https://arxiv.org/abs/1906.05272) to improve prediction using GPS coordinates and time of year, but it did not work with the model overfitting the training set. We believe GPS coordinates can be useful for the problem (it worked very well for our [iNat 2021 solution](https://github.com/alcunha/inat2021ufam)), but it's necessary to develop a model to deal with camera trap specificities such as the fixed position.
+We tried to use the GPS coordinates and time of year (image timestamps) to train the [Geo Prior model](https://arxiv.org/abs/1906.05272), but the model overfitted the iWildCam 2021 training set. We believe GPS coordinates can be useful for the problem (it worked very well for our [iNat 2021 solution](https://github.com/alcunha/inat2021ufam), for instance), but it's necessary to develop a model to deal with camera trap specificities, such as the fixed position.
 
-This repository includes code to predict using a trained geo prior model that can be trained using our [Tensorflow implementation](https://github.com/alcunha/geo_prior_tf/). See the script `classification/eval_main.py` for predictions combined with geo priors. The Geo Prior model doesn't learn using the original loss, so we had to replace it with the focal loss. But using only the classifier predictions was better than using them combined with geo priors.
+This repository includes code to predict using a trained geo prior model that can be trained using our [Tensorflow implementation](https://github.com/alcunha/geo_prior_tf/). See the script `classification/eval_main.py` for predictions combined with geo priors. The Geo Prior model didn't learn using the original loss, so we had to replace it with the focal loss. But using only the classifier predictions was better than using them combined with geo priors.
 
 #### DeepSORT to track animals
 
-We tried to use [DeepSORT](https://arxiv.org/abs/1703.07402) to generate tracks over sequences. Then we classify each track by averaging the predictions of its bounding boxes list. We use the feature embedding from EfficientNet-B2 trained on bounding boxes. We also tried to use features from ReID models trained by the [winner of ECCV TAO 2020 challenge](https://github.com/feiaxyt/Winner_ECCV20_TAO), but they performed slightly worst than using EfficientNet-B2 features.
+We tried to use [DeepSORT](https://arxiv.org/abs/1703.07402) to generate tracks over sequences and then classify each track by averaging the predictions of its bounding boxes list. We used the feature embedding from EfficientNet-B2 trained on bounding boxes. We also tried to use features from ReID models trained by the [winner of ECCV TAO 2020 challenge](https://github.com/feiaxyt/Winner_ECCV20_TAO), but they performed slightly worse than using EfficientNet-B2 features.
 
 To extract features using EfficientNet-B2, use the script `mot/generate_features.py`:
 ```bash
