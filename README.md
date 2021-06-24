@@ -1,5 +1,7 @@
 # iWildcam 2021 - UFAM Team
 
+1st Place Solution to iWildcam 2021: Count the number of animals of each species present in a sequence of images
+
 ### Requirements
 
 Prepare an environment with python=3.8, tensorflow=2.3.1
